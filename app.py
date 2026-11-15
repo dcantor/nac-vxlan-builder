@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from nacbuilder import paths
 from nacbuilder import standards as std
 from nacbuilder.checks import check_project
+from nacbuilder.demo import is_demo
 from nacbuilder.models import Project
 from nacbuilder.sample import standard_example
 from nacbuilder.ui import key, project, redo, set_project, show_flash, undo, undo_stack
@@ -48,6 +49,9 @@ with st.sidebar:
     st.markdown(f"**Fabric:** `{p.fabric.name}` · {std.get(p.standard).label} · {counts}")
     if export_dir:
         st.caption(f"Export folder: `export/{p.fabric.name}/`")
+    if is_demo(p):
+        st.warning("**Demo mode:** a simulated fabric with sample values. Export or delete it under "
+                   "Design standards → Demo mode.", icon=":material/slideshow:")
     issues = check_project(p)
     errs = sum(i.level == "error" for i in issues)
     warns = len(issues) - errs

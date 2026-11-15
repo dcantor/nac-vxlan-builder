@@ -74,11 +74,11 @@ def test_page_is_locked_until_acknowledged():
 def test_page_saves_and_validates():
     at = page()
     at.checkbox(key="std_unlock").check().run()
-    dmz = at.tabs[1]
+    dmz = next(t for t in at.tabs if t.label == "DMZ Fabric")
     next(t for t in dmz.text_input if t.label == "BGP ASN").set_value("not-an-asn")
     next(b for b in dmz.button if b.label == "Save standard").click().run()
     assert any("Not saved" in e.value for e in at.error) and not std.is_customised()
-    dmz = at.tabs[1]
+    dmz = next(t for t in at.tabs if t.label == "DMZ Fabric")
     next(t for t in dmz.text_input if t.label == "BGP ASN").set_value("65300")
     next(n for n in dmz.number_input if n.label == "Spines (0 = any)").set_value(0)
     next(b for b in dmz.button if b.label == "Save standard").click().run()

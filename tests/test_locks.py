@@ -106,6 +106,6 @@ def test_editor_saves_locks():
     at.run()
     at.checkbox(key="std_unlock").check().run()
     at.multiselect(key="lock_dmz").set_value(["bgp_asn", "leaf_roles"])
-    next(b for b in at.tabs[1].button if b.label == "Save standard").click().run()
+    next(b for b in next(t for t in at.tabs if t.label == "DMZ Fabric").button if b.label == "Save standard").click().run()
     assert not at.exception
     assert std.get("dmz").locked == ("bgp_asn", "leaf_roles")

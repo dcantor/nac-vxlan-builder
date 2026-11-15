@@ -336,6 +336,22 @@ which rules the checks enforce, and which pages appear:
 **+ border groups** creates `border-client`, `border-internal` and `border-external`.
 The `all` group contains leafs only.
 
+### Demo mode
+
+**Design standards → Demo mode** (no developer unlock needed) loads `demo-dc1`, a simulated fabric
+with sample values for showing the app's features:
+- 4 spines, compute and storage leaf pairs, and client/internal/external border pairs, all with
+  hardware models
+- PROD and DEV tenants with five VLANs, and vPC host ports
+- a VRF-lite handoff on the external borders
+- two shut ports, which show red on the port map
+
+Serials, IPs and ASNs are made up. While it's open, the sidebar shows a Demo mode badge.
+
+- **Export:** download the demo's YAML as a zip, or write it to `export/demo-dc1/`.
+- **Delete:** after you confirm, removes the demo fabric, its `export/demo-dc1/` folder and its
+  history snapshots, then reopens the fabric you had open before the demo (or a new, empty one).
+
 ### Design standards editor (developers only)
 
 The **Design standards (dev)** page, near the bottom of the menu above Day-2 tasks, lets a
@@ -397,6 +413,7 @@ nacbuilder/hardware.py  Nexus 9300 catalog (data/nexus9300.yaml) and per-model p
 nacbuilder/paths.py     export/<fabric>/ folders
 nacbuilder/clone.py     clone a fabric under a new name
 nacbuilder/portmap.py   per-switch port states and the front-panel SVG
+nacbuilder/demo.py      demo mode fabric (build, delete)
 nacbuilder/standards.py design standards: built-ins + data/standards.yaml (Design standards page)
 tests/golden/       Cisco's example files, used as expected output
 ```
