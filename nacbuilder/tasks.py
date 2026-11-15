@@ -16,6 +16,7 @@ from .defaults import (
     next_network,
     next_vrf,
 )
+from .models.interfaces import compress_vlans, expand_vlans
 from .models import Attachment, Interface, Management, Network, Project, Switch, VpcPeer, Vrf
 
 
@@ -59,14 +60,21 @@ def new_tenant(
     vrf_id: int | None = None,
     vrf_vlan: int | None = None,
     vrf_lite: VrfLiteSpec | None = None,
+    switches: list[str] | None = None,
 ) -> Project:
-    """A VRF, its networks, the attach group they use (created with every leaf if missing) and,
-    optionally, a VRF-lite handoff on the borders."""
+    """A VRF, its networks, the attach group they use and, optionally, a VRF-lite handoff on the borders.
+
+    A missing attach group is created with `switches`, or every leaf when none are given.
+    """
     q = _copy(p)
     if any(v.name == vrf_name for v in q.vrfs):
         raise ValueError(f"VRF {vrf_name} already exists")
     if attach_group and attach_group not in q.attach_groups():
-        rows = group_all_leafs(q, name=attach_group)
+        if switches:
+            _known_switches(q, switches)
+            rows = [Attachment(group=attach_group, hostname=sw) for sw in switches]
+        else:
+            rows = group_all_leafs(q, name=attach_group)
         if not rows:
             raise ValueError("there are no leafs to put in a new attach group")
         q.attachments += rows
@@ -98,6 +106,171 @@ def new_tenant(
         plan = build_vrf_lite(q, vrf_name, {s: vrf_lite.uplinks for s in vrf_lite.switches},
                               vrf_lite.dot1q_id or vrf.vlan_id, vrf_lite.pool, vrf_lite.prefix, vrf_lite.remote_as)
         q = apply_vrf_lite_plan(q, plan)
+    return q
+
+
+def add_vrf(
+    p: Project,
+    name: str,
+    attach_group: str | None = None,
+    switches: list[str] | None = None,
+    vrf_id: int | None = None,
+    vlan_id: int | None = None,
+    vrf_lite: VrfLiteSpec | None = None,
+) -> Project:
+    """Just a VRF (no networks yet). It uses `attach_group` if given, otherwise a new group
+    `<name>-vrf` with `switches` (default: every leaf)."""
+    group = attach_group or _unique_group(p, f"{name}-vrf")
+    return new_tenant(p, name, [], attach_group=group, vrf_id=vrf_id, vrf_vlan=vlan_id, vrf_lite=vrf_lite,
+                      switches=switches)
+
+
+# --- VLANs (networks) -----------------------------------------------------------------
+@dataclass
+class TrunkSpec:
+    """Also allow the new VLANs on trunk ports of these switches."""
+
+    switches: list[str]
+    include_vpc_peers: bool = True
+    port_channels_only: bool = False
+
+
+def _known_switches(q: Project, switches) -> None:
+    unknown = set(switches) - {s.name for s in q.switches}
+    if unknown:
+        raise ValueError(f"unknown switch(es): {', '.join(sorted(unknown))}")
+
+
+def _unique_group(q: Project, base: str) -> str:
+    taken = set(q.attach_groups())
+    name, n = base, 2
+    while name in taken:
+        name, n = f"{base}{n}", n + 1
+    return name
+
+
+def _with_peers(q: Project, switches) -> list[str]:
+    out = list(dict.fromkeys(switches))
+    for sw in list(out):
+        pair = q.vpc_peer_of(sw)
+        if pair:
+            for x in (pair.peer1, pair.peer2):
+                if x not in out:
+                    out.append(x)
+    return out
+
+
+def _ensure_attached(q: Project, kind: str, name: str, switches) -> None:
+    """Deploy VRF/network `name` to `switches` as well, without changing what anything else is deployed to.
+
+    Rows are tagged `used_for=kind`, so they only affect that kind. If the group is shared with another
+    VRF (for kind="vrf") or network (for kind="network"), this item gets its own copy of the group first.
+    """
+    items = q.vrfs if kind == "vrf" else q.networks
+    item = next((x for x in items if x.name == name), None)
+    if item is None:
+        raise ValueError(f"unknown {'VRF' if kind == 'vrf' else 'network'} {name}")
+    field = "vrf_attach_group" if kind == "vrf" else "network_attach_group"
+    group = getattr(item, field)
+    rows = q.attach_groups(kind).get(group, []) if group else []
+    missing = [s for s in dict.fromkeys(switches) if s not in {a.hostname for a in rows}]
+    if not missing:
+        return
+    shared = bool(group) and any(getattr(x, field) == group for x in items if x.name != name)
+    if not group or shared:
+        new = _unique_group(q, f"{name}-{'vrf' if kind == 'vrf' else 'net'}")
+        q.attachments += [Attachment(group=new, hostname=a.hostname, ports=a.ports if kind == "network" else [],
+                                     used_for=kind) for a in rows]
+        idx = items.index(item)
+        items[idx] = item.model_copy(update={field: new})
+        group = new
+    q.attachments += [Attachment(group=group, hostname=s, used_for=kind) for s in missing]
+
+
+def extend(p: Project, switches: list[str], networks: list[str] = (), vrfs: list[str] = (),
+           include_vpc_peers: bool = True) -> Project:
+    """Deploy existing networks and/or VRFs to more switches (a network's VRF follows it)."""
+    q = _copy(p)
+    _known_switches(q, switches)
+    if not switches or not (networks or vrfs):
+        raise ValueError("pick switches and at least one VLAN or VRF")
+    targets = _with_peers(q, switches) if include_vpc_peers else list(switches)
+    for n in networks:
+        net = next((x for x in q.networks if x.name == n), None)
+        if net is None:
+            raise ValueError(f"unknown network {n}")
+        _ensure_attached(q, "network", n, targets)
+        if net.vrf_name:
+            _ensure_attached(q, "vrf", net.vrf_name, targets)
+    for v in vrfs:
+        _ensure_attached(q, "vrf", v, targets)
+    return q
+
+
+def _trunk_vlans(q: Project, trunks: TrunkSpec, vlans, add: bool = True) -> list[str]:
+    """Add (or remove) VLANs on trunk ports of the given switches; returns the switches touched."""
+    targets = _with_peers(q, trunks.switches) if trunks.include_vpc_peers else list(trunks.switches)
+    touched = []
+    for idx, i in enumerate(q.interfaces):
+        if i.switch not in targets or i.mode != "trunk" or (trunks.port_channels_only and not i.is_port_channel):
+            continue
+        cur = expand_vlans(i.trunk_allowed_vlans)
+        new = cur | set(vlans) if add else cur - set(vlans)
+        if new != cur:
+            q.interfaces[idx] = i.model_copy(update={"trunk_allowed_vlans": compress_vlans(new)})
+            touched.append(i.switch)
+    return list(dict.fromkeys(touched))
+
+
+def add_vlan(
+    p: Project,
+    vrf: str,
+    networks: list[NetworkSpec],
+    attach_group: str | None = None,
+    trunks: TrunkSpec | None = None,
+) -> Project:
+    """New networks (VLANs) in an existing VRF.
+
+    They use `attach_group`, or by default the group the VRF's other networks use (else the VRF's
+    group). With `trunks`, the VLANs are also allowed on trunk ports of those switches, and the
+    networks (and VRF) are deployed there too.
+    """
+    q = _copy(p)
+    vrf_obj = next((v for v in q.vrfs if v.name == vrf), None)
+    if vrf_obj is None:
+        raise ValueError(f"VRF {vrf} doesn't exist")
+    if not networks:
+        raise ValueError("add at least one VLAN")
+    if attach_group is None:
+        used = [n.network_attach_group for n in q.networks if n.vrf_name == vrf and n.network_attach_group]
+        attach_group = max(set(used), key=used.count) if used else vrf_obj.vrf_attach_group
+    if attach_group and attach_group not in q.attach_groups():
+        raise ValueError(f"attach group {attach_group} doesn't exist")
+    names = [n.name for n in networks]
+    dup = {n for n in names if names.count(n) > 1} | {n for n in names if any(x.name == n for x in q.networks)}
+    if dup:
+        raise ValueError(f"network name(s) already used: {', '.join(sorted(dup))}")
+    used_vlans = {v.vlan_id for v in q.vrfs} | {n.vlan_id for n in q.networks}
+    taken = [s.vlan_id for s in networks if s.vlan_id and s.vlan_id in used_vlans]
+    if taken:
+        raise ValueError(f"VLAN(s) already in use: {', '.join(map(str, sorted(taken)))}")
+    new_vlans = []
+    for spec in networks:
+        nxt = next_network(q)
+        vlan = spec.vlan_id or nxt.vlan_id
+        q.networks.append(Network(
+            name=spec.name, vrf_name=vrf, net_id=spec.net_id or nxt.net_id, vlan_id=vlan,
+            vlan_name=f"{spec.name}_vlan{vlan}", gw_ip_address=spec.gw_ip_address or None,
+            network_attach_group=attach_group or None,
+        ))
+        new_vlans.append(vlan)
+    if trunks and trunks.switches:
+        _known_switches(q, trunks.switches)
+        targets = _with_peers(q, trunks.switches) if trunks.include_vpc_peers else list(trunks.switches)
+        _trunk_vlans(q, trunks, new_vlans)
+        for n in names:  # a VLAN allowed on a trunk is only useful if the network is deployed on that switch
+            _ensure_attached(q, "network", n, targets)
+        _ensure_attached(q, "vrf", vrf, targets)
     return q
 
 
@@ -210,12 +383,14 @@ def remove_vrf_lite(p: Project, name: str, drop_interfaces: bool = True) -> Proj
     return q
 
 
-def decommission(p: Project, switches: list[str] = (), vrfs: list[str] = (), include_vpc_peer: bool = True) -> Project:
+def decommission(p: Project, switches: list[str] = (), vrfs: list[str] = (), include_vpc_peer: bool = True,
+                 networks: list[str] = (), strip_trunks: bool = True) -> Project:
     """Remove switches and/or VRFs plus everything that references them.
 
     Switches: their interfaces, vPC pair (and, by default, the vPC peer), attach-group rows,
     VRF-lite entries and kept imported settings. VRFs: their networks, VRF-lite profiles (with
-    sub-interfaces), routed interfaces in the VRF and kept settings.
+    sub-interfaces), routed interfaces in the VRF and kept settings. Networks (VLANs): the network
+    and, with strip_trunks, its VLAN on every trunk port.
     """
     q = _copy(p)
     gone_sw = set(switches)
@@ -230,13 +405,19 @@ def decommission(p: Project, switches: list[str] = (), vrfs: list[str] = (), inc
     if gone_vrf - {v.name for v in q.vrfs}:
         raise ValueError(f"unknown VRF(s): {', '.join(sorted(gone_vrf - {v.name for v in q.vrfs}))}")
 
+    unknown_nets = set(networks) - {n.name for n in q.networks}
+    if unknown_nets:
+        raise ValueError(f"unknown network(s): {', '.join(sorted(unknown_nets))}")
     groups_before = {v.vrf_attach_group for v in q.vrfs if v.name in gone_vrf} | {
-        n.network_attach_group for n in q.networks if n.vrf_name in gone_vrf}
+        n.network_attach_group for n in q.networks if n.vrf_name in gone_vrf or n.name in networks}
 
     # VRFs first (their VRF-lite profiles may reference switches being removed too)
     for lite in [v for v in q.vrf_lites if v.vrf in gone_vrf]:
         q = remove_vrf_lite(q, lite.name)
-    gone_nets = {n.name for n in q.networks if n.vrf_name in gone_vrf}
+    gone_nets = {n.name for n in q.networks if n.vrf_name in gone_vrf or n.name in networks}
+    if strip_trunks:
+        gone_vlans = {n.vlan_id for n in q.networks if n.name in gone_nets}
+        _trunk_vlans(q, TrunkSpec([s.name for s in q.switches], include_vpc_peers=False), gone_vlans, add=False)
     q.vrfs = [v for v in q.vrfs if v.name not in gone_vrf]
     q.networks = [n for n in q.networks if n.name not in gone_nets]
     q.interfaces = [i for i in q.interfaces if i.vrf not in gone_vrf]
@@ -276,6 +457,10 @@ def border_switches(p: Project, bset: str = "external") -> list[str]:
 
 __all__ = [
     "HostPorts",
+    "TrunkSpec",
+    "add_vlan",
+    "add_vrf",
+    "extend",
     "NetworkSpec",
     "VrfLiteSpec",
     "border_switches",

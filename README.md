@@ -76,11 +76,22 @@ Nothing changes until you click **Apply**.
 - **Onboard a leaf pair:** suggests the next leaf names and management IPs. It adds both leafs,
   makes them a vPC pair (peer-link ports or fabric peering), creates one vPC port-channel per
   host port on both leafs, and adds them to attach groups you choose.
-- **Decommission:** removes switches or VRFs and everything that references them:
+- **Add VRF:** a VRF on its own, ready for VLANs. It deploys to a new group with the switches
+  you pick, or to an existing attach group, optionally with a VRF-lite handoff.
+- **Add VLAN:** one or more networks in an existing VRF, with VLAN and VNI picked automatically.
+  - **Attach group:** they use the same group as the VRF's other VLANs unless you pick one.
+  - **Trunks:** they can also be allowed on trunk ports of chosen switches (vPC peers included
+    by default, optionally port-channels only). The VLAN IDs are merged into each trunk's
+    allowed list, and the networks and their VRF are deployed to those switches.
+- **Extend to switches:** deploys existing VLANs or VRFs to more switches. A VLAN's VRF follows it.
+  If the group is shared with another VLAN or VRF, the item gets its own copy of the group, so
+  nothing else moves.
+- **Decommission:** removes switches, VRFs or VLANs and everything that references them:
   - **For a switch:** its interfaces, its vPC pair, attach-group rows, VRF-lite entries and kept
     imported settings. The vPC peer is removed too unless you untick that option.
   - **For a VRF:** its networks, VRF-lite profiles and sub-interfaces, and attach groups that only
     it used.
+  - **For a VLAN:** the network, attach groups only it used, and (by default) its VLAN on every trunk.
 
 When a VRF-lite handoff is added to a VRF whose attach group is shared with other VRFs or
 networks, the VRF gets its own copy of that group with the borders added. That way only this

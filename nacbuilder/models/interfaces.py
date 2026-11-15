@@ -188,3 +188,26 @@ class VpcPeer(NacModel):
             if d.get(k):
                 d[k] = [{"name": n} for n in d[k]]
         return d
+
+
+def compress_vlans(vlans) -> str | None:
+    """{10, 11, 12, 50} -> '10-12,50' (None when empty)."""
+    vs = sorted(set(vlans))
+    if not vs:
+        return None
+    parts, start, prev = [], vs[0], vs[0]
+    for v in vs[1:] + [None]:
+        if v is not None and v == prev + 1:
+            prev = v
+            continue
+        parts.append(str(start) if start == prev else f"{start}-{prev}")
+        if v is not None:
+            start = prev = v
+    return ",".join(parts)
+
+
+def expand_vlans(text: str | None) -> set[int]:
+    out: set[int] = set()
+    for a, b in parse_vlan_ranges(text) if text else []:
+        out.update(range(a, (b or a) + 1))
+    return out

@@ -7,9 +7,13 @@ from pydantic import ValidationError
 from nacbuilder.checks import check_project
 from nacbuilder.defaults import expand_ports
 from nacbuilder.diffing import compare_projects
-from nacbuilder.models import Project
+from nacbuilder.models import ATTACHABLE_ROLES, Project
 from nacbuilder.tasks import (
     HostPorts,
+    TrunkSpec,
+    add_vlan,
+    add_vrf,
+    extend,
     NetworkSpec,
     VrfLiteSpec,
     border_switches,
@@ -42,7 +46,107 @@ def fail(e: Exception) -> None:
 st.title("Day-2 tasks")
 st.caption("Common changes that touch several pages at once. Each shows a preview first; nothing changes until you apply it.")
 
-tab_tenant, tab_leafs, tab_remove = st.tabs(["New tenant", "Onboard a leaf pair", "Decommission"])
+tab_tenant, tab_vrf, tab_vlan, tab_extend, tab_leafs, tab_remove = st.tabs(
+    ["New tenant", "Add VRF", "Add VLAN", "Extend to switches", "Onboard a leaf pair", "Decommission"])
+
+attachable = [s.name for s in p.switches if s.role in ATTACHABLE_ROLES]
+leafs = [s.name for s in p.switches if s.role == "leaf"]
+trunk_switches = sorted({i.switch for i in p.interfaces if i.mode == "trunk"})
+
+# --- add VRF ------------------------------------------------------------------------
+with tab_vrf:
+    st.caption("A VRF on its own, ready for VLANs. It can use an existing attach group or a new one with the switches you pick.")
+    groups = sorted(p.attach_groups())
+    with st.form("add_vrf"):
+        c1, c2, c3 = st.columns([2, 1, 1])
+        name = c1.text_input("VRF name", placeholder="DEV")
+        vid = c2.number_input("VRF ID (0 = next free)", 0, 16777214, 0, key="addvrf_id")
+        vvlan = c3.number_input("VLAN (0 = next free)", 0, 4094, 0, key="addvrf_vlan")
+        where = st.radio("Deploy to", ["New group with these switches", "Existing attach group"], horizontal=True)
+        c1, c2 = st.columns(2)
+        sws = c1.multiselect("Switches (new group)", attachable, default=leafs)
+        grp = c2.selectbox("Existing group", groups or ["(none)"])
+        with_lite = st.toggle("Hand the VRF off to external routers (VRF-lite)", key="addvrf_lite",
+                              disabled=not border_switches(p, "external"))
+        c1, c2, c3, c4 = st.columns(4)
+        lite_sw = c1.multiselect("Borders", [s.name for s in p.switches if s.role in BORDER_ROLES],
+                                 default=border_switches(p, "external"), key="addvrf_lsw")
+        lite_up = c2.text_input("Uplink port(s)", "Ethernet1/48", key="addvrf_up")
+        lite_pool = c3.text_input("Link pool", "10.254.0.0/24", key="addvrf_pool")
+        lite_as = c4.number_input("Neighbor ASN", 1, 4294967295, 65500, key="addvrf_as")
+        go = st.form_submit_button("Preview", type="primary")
+    if go:
+        try:
+            if not name.strip():
+                raise ValueError("enter a VRF name")
+            lite = VrfLiteSpec(lite_sw, [x.strip() for x in lite_up.split(",") if x.strip()], lite_pool, 30,
+                               int(lite_as)) if with_lite else None
+            existing = where.startswith("Existing")
+            if existing and grp not in groups:
+                raise ValueError("there are no attach groups yet; deploy to a new group instead")
+            q = add_vrf(p, name.strip(), attach_group=grp if existing else None, switches=None if existing else sws,
+                        vrf_id=int(vid) or None, vlan_id=int(vvlan) or None, vrf_lite=lite)
+            stage(f"Add VRF {name.strip()}", q)
+        except (ValidationError, ValueError) as e:
+            fail(e)
+
+# --- add VLAN ---------------------------------------------------------------------------
+with tab_vlan:
+    if not p.vrfs:
+        st.info("Add a VRF first.", icon=":material/info:")
+    else:
+        st.caption("New VLANs (networks) in an existing VRF. VLAN and VNI are picked automatically when blank. "
+                   "Optionally allow them on host trunks too; the VLANs and their VRF are then deployed to those switches.")
+        with st.form("add_vlan"):
+            c1, c2 = st.columns(2)
+            vrf_pick = c1.selectbox("VRF", [v.name for v in p.vrfs])
+            grp_opts = ["(same as the VRF's other VLANs)", *sorted(p.attach_groups("network") | p.attach_groups())]
+            grp_pick = c2.selectbox("Attach group", list(dict.fromkeys(grp_opts)))
+            vlan_df = st.data_editor(
+                pd.DataFrame({"name": pd.Series(dtype="string"), "gw_ip_address": pd.Series(dtype="string"),
+                              "vlan_id": pd.Series(dtype="Int64")}),
+                num_rows="dynamic", use_container_width=True, key=key("vlan_rows"),
+                column_config={
+                    "name": st.column_config.TextColumn("Network name", required=True),
+                    "gw_ip_address": st.column_config.TextColumn("Gateway IPv4", help="e.g. 10.20.9.1/24; blank = Layer-2 style, no SVI IP"),
+                    "vlan_id": st.column_config.NumberColumn("VLAN", min_value=2, max_value=4094, step=1),
+                },
+            )
+            c1, c2, c3 = st.columns([2, 1, 1])
+            trunk_sws = c1.multiselect("Also allow on trunks of", trunk_switches,
+                                       help="Switches with trunk ports. Their trunks get the new VLAN IDs added.")
+            peers = c2.checkbox("Include vPC peers", value=True)
+            pc_only = c3.checkbox("Port-channels only", value=False)
+            go = st.form_submit_button("Preview", type="primary")
+        if go:
+            try:
+                specs = [NetworkSpec(name=r["name"], gw_ip_address=r.get("gw_ip_address"), vlan_id=r.get("vlan_id"))
+                         for r in records(vlan_df) if r.get("name")]
+                trunks = TrunkSpec(trunk_sws, peers, pc_only) if trunk_sws else None
+                q = add_vlan(p, vrf_pick, specs, attach_group=None if grp_pick.startswith("(") else grp_pick, trunks=trunks)
+                stage(f"Add {len(specs)} VLAN(s) to {vrf_pick}", q)
+            except (ValidationError, ValueError) as e:
+                fail(e)
+
+# --- extend to switches ---------------------------------------------------------------------
+with tab_extend:
+    st.caption("Deploy existing VLANs or VRFs to more switches. A VLAN's VRF follows it. If a group is shared, "
+               "the VLAN or VRF gets its own copy so nothing else moves.")
+    with st.form("extend"):
+        c1, c2 = st.columns(2)
+        nets = c1.multiselect("VLANs (networks)", [f"{n.name}" for n in p.networks],
+                              format_func=lambda n: f"{n} (VLAN {next(x.vlan_id for x in p.networks if x.name == n)})")
+        vrfs_x = c2.multiselect("VRFs", [v.name for v in p.vrfs])
+        c1, c2 = st.columns([3, 1])
+        to = c1.multiselect("To switches", attachable)
+        peers_x = c2.checkbox("Include vPC peers", value=True, key="extend_peers")
+        go = st.form_submit_button("Preview", type="primary")
+    if go:
+        try:
+            q = extend(p, to, networks=nets, vrfs=vrfs_x, include_vpc_peers=peers_x)
+            stage(f"Extend {', '.join(nets + vrfs_x)} to {', '.join(to)}", q)
+        except (ValidationError, ValueError) as e:
+            fail(e)
 
 # --- new tenant -------------------------------------------------------------------
 with tab_tenant:
@@ -134,13 +238,17 @@ with tab_remove:
         peer = st.checkbox("Also remove each switch's vPC peer", value=True,
                            help="A vPC pair is decommissioned together. Untick to keep the peer; its vPC port-channels then lose their vPC ID.")
         vrfs = st.multiselect("VRFs (with their networks and VRF-lite)", [v.name for v in p.vrfs])
+        c1, c2 = st.columns([3, 1])
+        nets = c1.multiselect("VLANs (networks)", [n.name for n in p.networks],
+                              format_func=lambda n: f"{n} (VLAN {next(x.vlan_id for x in p.networks if x.name == n)})")
+        strip = c2.checkbox("Remove the VLANs from trunks", value=True)
         go = st.form_submit_button("Preview", type="primary")
     if go:
         try:
-            if not sws and not vrfs:
-                raise ValueError("pick at least one switch or VRF")
-            q = decommission(p, switches=sws, vrfs=vrfs, include_vpc_peer=peer)
-            stage("Decommission " + ", ".join(sws + vrfs), q)
+            if not sws and not vrfs and not nets:
+                raise ValueError("pick at least one switch, VRF or VLAN")
+            q = decommission(p, switches=sws, vrfs=vrfs, include_vpc_peer=peer, networks=nets, strip_trunks=strip)
+            stage("Decommission " + ", ".join(sws + vrfs + nets), q)
         except (ValidationError, ValueError) as e:
             fail(e)
 

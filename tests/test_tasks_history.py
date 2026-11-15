@@ -156,7 +156,7 @@ def test_tasks_page_preview_and_apply():
     at.session_state["project"] = standard_example()
     at.run()
     assert not at.exception and at.title
-    decom = at.tabs[2]
+    decom = at.tabs[5]
     decom.multiselect[0].set_value(["dc1-leaf3"])
     next(b for b in decom.button if b.label == "Preview").click().run()
     assert not at.exception
@@ -187,3 +187,119 @@ def test_onboarding_keeps_vrfs_with_their_networks():
     q = onboard_leaf_pair(p, ("dc1-leaf5", "dc1-leaf6"), peerlink_ports=["Ethernet1/53"], groups=["all"])
     assert [i.message for i in check_project(q) if i.section in ("Networks", "VRFs", "Attach groups")] == []
     assert {"dc1-leaf5", "dc1-leaf6"} <= {a.hostname for a in q.attachments if a.group == "PROD-vrf"}
+
+
+# --- add VRF / add VLAN / extend / remove VLANs ------------------------------------------------
+from nacbuilder.models.interfaces import compress_vlans, expand_vlans  # noqa: E402
+from nacbuilder.tasks import TrunkSpec, add_vlan, add_vrf, extend  # noqa: E402
+from tests.test_fabric_features import full_fabric  # noqa: E402
+
+
+def issues(p):
+    return [i.message for i in check_project(p)]
+
+
+def test_vlan_range_helpers():
+    assert compress_vlans([12, 10, 11, 50, 52, 51, 7]) == "7,10-12,50-52"
+    assert compress_vlans([]) is None
+    assert expand_vlans("10-12,50") == {10, 11, 12, 50} and expand_vlans(None) == set()
+
+
+def test_add_vrf_new_group_and_existing_group():
+    p = standard_example()
+    q = add_vrf(p, "DEV", switches=["dc1-leaf3", "dc1-leaf4"])
+    assert issues(q) == []
+    vrf = q.vrfs[-1]
+    assert (vrf.name, vrf.vrf_attach_group) == ("DEV", "DEV-vrf")
+    assert {a.hostname for a in q.attachments if a.group == "DEV-vrf"} == {"dc1-leaf3", "dc1-leaf4"}
+    r = add_vrf(p, "QA", attach_group="all")
+    assert r.vrfs[-1].vrf_attach_group == "all" and len(r.attachments) == len(p.attachments)
+    with pytest.raises(ValueError, match="unknown switch"):
+        add_vrf(p, "X", switches=["nope"])
+
+
+def test_add_vlan_defaults_and_trunks():
+    p = full_fabric()  # VRF01 with NET01 on group "all"; port-channel10 trunk 2300-2310 on leaf1/leaf2
+    q = add_vlan(p, "VRF01", [NetworkSpec("NET02", "172.16.20.1/24"), NetworkSpec("NET03", vlan_id=2350)],
+                 trunks=TrunkSpec(["dc1-leaf1"]))
+    assert issues(q) == []
+    new = {n.name: n for n in q.networks}
+    assert new["NET02"].network_attach_group == "all" and new["NET02"].vrf_name == "VRF01"
+    assert new["NET03"].vlan_id == 2350
+    trunks = {(i.switch, i.name): i.trunk_allowed_vlans for i in q.interfaces if i.mode == "trunk"}
+    # leaf2 is leaf1's vPC peer, so it gets the VLAN too
+    assert trunks == {("dc1-leaf1", "port-channel10"): "2300-2310,2350", ("dc1-leaf2", "port-channel10"): "2300-2310,2350"}
+    with pytest.raises(ValueError, match="already in use"):
+        add_vlan(p, "VRF01", [NetworkSpec("X", vlan_id=2300)])
+    with pytest.raises(ValueError, match="doesn't exist"):
+        add_vlan(p, "NOPE", [NetworkSpec("X")])
+
+
+def test_add_vlan_on_trunks_outside_its_group_deploys_it_there():
+    p = full_fabric()
+    p.interfaces.append(p.interfaces[0].model_copy(update={"switch": "dc1-border-client1", "name": "Ethernet1/5",
+                                                          "members": [], "vpc_id": None}))
+    q = add_vlan(p, "VRF01", [NetworkSpec("NET09", "172.16.90.1/24", vlan_id=2390)],
+                 trunks=TrunkSpec(["dc1-border-client1"], include_vpc_peers=False))
+    net = next(n for n in q.networks if n.name == "NET09")
+    assert net.network_attach_group == "NET09-net"  # "all" is shared with NET01, so NET09 got its own group
+    assert "dc1-border-client1" in {a.hostname for a in q.attachments if a.group == "NET09-net"}
+    vrf_group = next(v for v in q.vrfs if v.name == "VRF01").vrf_attach_group
+    assert "dc1-border-client1" in {a.hostname for a in q.attach_groups("vrf")[vrf_group]}
+    assert [m for m in issues(q) if "NET09" in m] == []
+
+
+def test_extend_network_and_vrf():
+    p = full_fabric()
+    q = extend(p, ["dc1-border-client1"], networks=["NET01"])  # peer border-client2 comes too
+    assert issues(q) == []
+    net = next(n for n in q.networks if n.name == "NET01")
+    hosts = {a.hostname for a in q.attach_groups("network")[net.network_attach_group]}
+    assert {"dc1-border-client1", "dc1-border-client2", "dc1-leaf1"} <= hosts
+    # Nothing else moved: the other network groups are unchanged
+    assert compare_projects(p, q).removed == []
+    with pytest.raises(ValueError, match="pick switches"):
+        extend(p, [], networks=["NET01"])
+
+
+def test_decommission_vlans_strips_trunks():
+    p = add_vlan(full_fabric(), "VRF01", [NetworkSpec("NET03", vlan_id=2350)], trunks=TrunkSpec(["dc1-leaf1"]))
+    q = decommission(p, networks=["NET03"])
+    assert issues(q) == []
+    assert not any(n.name == "NET03" for n in q.networks)
+    assert {i.trunk_allowed_vlans for i in q.interfaces if i.mode == "trunk"} == {"2300-2310"}
+    r = decommission(p, networks=["NET03"], strip_trunks=False)
+    assert {i.trunk_allowed_vlans for i in r.interfaces if i.mode == "trunk"} == {"2300-2310,2350"}
+    with pytest.raises(ValueError, match="unknown network"):
+        decommission(p, networks=["nope"])
+
+
+def test_tasks_page_add_vlan_flow():
+    at = AppTest.from_file(str(ROOT / "views" / "tasks.py"), default_timeout=30)
+    at.session_state["project"] = full_fabric()
+    at.run()
+    tab = at.tabs[2]
+    assert tab.label == "Add VLAN"
+    tab.multiselect[0].set_value(["dc1-leaf1"])
+    # the data editor can't be typed into in AppTest; an empty table must fail with a clear message
+    next(b for b in tab.button if b.label == "Preview").click().run()
+    assert any("add at least one VLAN" in e.value for e in at.error)
+    assert not at.exception
+
+
+def test_tasks_page_add_vrf_and_extend_flows():
+    at = AppTest.from_file(str(ROOT / "views" / "tasks.py"), default_timeout=30)
+    at.session_state["project"] = full_fabric()
+    at.run()
+    vrf_tab = at.tabs[1]
+    vrf_tab.text_input[0].set_value("DEV")
+    next(b for b in vrf_tab.button if b.label == "Preview").click().run()
+    assert at.session_state["task_preview"]["label"] == "Add VRF DEV"
+    next(b for b in at.button if b.label == "Apply").click().run()
+    assert any(v.name == "DEV" for v in at.session_state["project"].vrfs)
+    ext = at.tabs[3]
+    ext.multiselect[0].set_value(["NET01"])
+    ext.multiselect[2].set_value(["dc1-border-internal1"])
+    next(b for b in ext.button if b.label == "Preview").click().run()
+    assert at.session_state["task_preview"]["label"] == "Extend NET01 to dc1-border-internal1"
+    assert not at.exception
