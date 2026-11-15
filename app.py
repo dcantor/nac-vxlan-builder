@@ -3,6 +3,7 @@
 import streamlit as st
 from pydantic import ValidationError
 
+from nacbuilder import paths
 from nacbuilder import standards as std
 from nacbuilder.checks import check_project
 from nacbuilder.models import Project
@@ -12,6 +13,10 @@ from nacbuilder.ui import key, project, redo, set_project, show_flash, undo, und
 st.set_page_config(page_title="NaC VXLAN Builder", page_icon=":material/lan:", layout="wide")
 
 p = project()
+try:  # export/ in the project root, with a sub folder per fabric
+    export_dir = paths.fabric_export_dir(p.fabric.name)
+except OSError:
+    export_dir = None
 # (file, title, icon, VXLAN-only?) in wizard order; numbered after filtering for the fabric's standard.
 STEPS = [
     ("views/fabric.py", "Fabric", ":material/hub:", False),
@@ -41,6 +46,8 @@ nav = st.navigation([*pages, history_page, standards_page, tasks_page], expanded
 with st.sidebar:
     counts = f"{len(p.switches)} switches" + (f" · {len(p.vrfs)} VRFs · {len(p.networks)} networks" if p.is_vxlan else "")
     st.markdown(f"**Fabric:** `{p.fabric.name}` · {std.get(p.standard).label} · {counts}")
+    if export_dir:
+        st.caption(f"Export folder: `export/{p.fabric.name}/`")
     issues = check_project(p)
     errs = sum(i.level == "error" for i in issues)
     warns = len(issues) - errs

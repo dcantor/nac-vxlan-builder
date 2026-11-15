@@ -5,6 +5,7 @@ import pytest
 def _isolated_history(tmp_path, monkeypatch):
     """Keep project-history snapshots written during tests out of the real home folder."""
     monkeypatch.setenv("NACB_HISTORY_DIR", str(tmp_path / "history"))
+    monkeypatch.setenv("NACB_EXPORT_DIR", str(tmp_path / "export"))  # and exports out of the repo's export/
 
 
 @pytest.fixture(autouse=True)

@@ -264,7 +264,11 @@ Key names for these sections follow Cisco's `cisco.nac_dc_vxlan` 0.9.1 templates
   folder: switches, vPC pairs, interfaces, VRFs, networks, attach groups and VRF-lite that
   are added, removed or changed. There's also a line-by-line diff of every file, including
   files that will be deleted. **Write files** stays disabled when nothing would change.
-- **Export:** download a zip, or write the files into your NaC repo's `host_vars/<fabric>/`.
+- **Export:** download a zip, or write the files to a folder. By default that's
+  `export/<fabric>/` in the app folder: the app creates `export/` when it starts and a sub
+  folder for each fabric it works on (the sidebar shows the current one). Its contents are
+  git-ignored. A fabric imported from a folder defaults to that folder instead, and you can
+  type your NaC repo's `host_vars/<fabric>/` to write there directly.
 
 Then deploy from the NaC repo as usual, e.g. `ansible-playbook -i inventory.yaml vxlan.yaml`.
 
@@ -358,6 +362,7 @@ nacbuilder/tasks.py     day-2 tasks (new tenant, onboard leaf pair, decommission
 nacbuilder/history.py   snapshots and undo/redo
 nacbuilder/cabling.py   cabling and port plan, Excel/CSV export
 nacbuilder/hardware.py  Nexus 9300 catalog (data/nexus9300.yaml) and per-model port defaults
+nacbuilder/paths.py     export/<fabric>/ folders
 nacbuilder/standards.py design standards: built-ins + data/standards.yaml (Design standards page)
 tests/golden/       Cisco's example files, used as expected output
 ```

@@ -6,6 +6,7 @@ from nacbuilder import standards as std
 from nacbuilder.checks import check_project
 from nacbuilder.diffing import change_summary, file_diffs
 from nacbuilder.generate import apply_write, plan_write, render_all, zip_bytes
+from nacbuilder.paths import fabric_export_dir
 from nacbuilder.settings import (
     COLLECTION_NAME,
     Settings,
@@ -131,15 +132,16 @@ st.download_button(
     type="primary",
 )
 
-st.markdown("**Write into a NaC repo**")
+st.markdown("**Write to a folder**")
 pv = p.preserved
 imported_from_folder = pv.source not in (None, "upload")
-default_dest = pv.source if imported_from_folder else str(Path.home() / "nac-nd" / "host_vars" / p.fabric.name)
+default_dest = pv.source if imported_from_folder else str(fabric_export_dir(p.fabric.name))
 dest_txt = st.text_input(
-    "Fabric folder (`<repo>/host_vars/<fabric>`)",
+    "Fabric folder",
     default_dest,
     key=f"dest_{p.fabric.name}",
-    help="Defaults to the folder the fabric was imported from.",
+    help="Defaults to export/<fabric>/ in the app folder, or to the folder the fabric was imported from. "
+    "To write straight into a NaC repo, use <repo>/host_vars/<fabric>.",
 )
 dest = Path(dest_txt).expanduser()
 if not dest.parent.is_dir():
