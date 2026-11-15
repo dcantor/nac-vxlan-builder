@@ -64,3 +64,34 @@ def test_bad_csv_imports_nothing_and_shows_errors(uploads):
     assert not at.exception
     assert at.session_state["project"].switches == p.switches
     assert any("Line 3" in e.value and "role" in e.value for e in at.error)
+
+
+def test_import_page_reads_folder_and_loads(tmp_path):
+    import shutil
+
+    fabric = tmp_path / "host_vars" / "nac-fabric1"
+    shutil.copytree(ROOT / "tests" / "golden", fabric)
+    at = AppTest.from_file(str(ROOT / "views" / "import_yaml.py"), default_timeout=30)
+    at.session_state["import_root"] = str(tmp_path)
+    at.run()
+    assert not at.exception
+    assert at.selectbox[0].value == fabric
+    next(b for b in at.button if b.label == "Read folder").click().run()
+    assert not at.exception
+    assert [m.value for m in at.metric][:4] == ["nac-fabric1", "6", "3", "3"]
+    load = next(b for b in at.button if b.label.startswith("Load into the app"))
+    load.click().run()
+    p = at.session_state["project"]
+    assert p.fabric.name == "nac-fabric1" and len(p.switches) == 6
+    assert p.preserved.source == str(fabric)
+
+
+@pytest.mark.parametrize(
+    "page", ["fabric.py", "switches.py", "underlay.py", "attach.py", "vrfs.py", "networks.py", "review.py", "import_yaml.py"]
+)
+def test_every_page_renders_an_imported_fabric(page):
+    from nacbuilder.importer import import_folder
+
+    p = import_folder(ROOT / "tests" / "golden").project
+    at = run_page(page, p)
+    assert not at.exception, at.exception

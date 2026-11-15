@@ -5,7 +5,7 @@ from nacbuilder import standards as std
 from nacbuilder.defaults import generate_switches
 from nacbuilder.models import ROLES
 from nacbuilder.tabular import SWITCH_COLS, switch_from_row, switch_to_row
-from nacbuilder.ui import build_rows, csv_import, fmt_errors, frame, key, project, records, save, section_issues, show_errors
+from nacbuilder.ui import TABLE_HELP, build_rows, csv_import, fmt_errors, frame, key, project, records, save, section_issues, show_errors
 
 p = project()
 
@@ -46,6 +46,7 @@ with st.expander("Quick generate", expanded=not p.switches, icon=":material/bolt
 
 csv_import("switches", "switches", COLS, from_row, required=["name"])
 
+st.caption(TABLE_HELP)
 with st.form("switches"):
     df = st.data_editor(
         frame([to_row(s) for s in p.switches], COLS),

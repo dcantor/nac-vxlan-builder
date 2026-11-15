@@ -2,7 +2,7 @@ import streamlit as st
 
 from nacbuilder.defaults import next_vrf
 from nacbuilder.tabular import VRF_COLS, vrf_from_row
-from nacbuilder.ui import build_rows, csv_import, frame, key, project, records, save, section_issues, show_errors
+from nacbuilder.ui import TABLE_HELP, build_rows, csv_import, frame, key, project, records, save, section_issues, show_errors
 
 p = project()
 
@@ -14,8 +14,9 @@ if st.button("Add VRF", icon=":material/add:", help="Appends a VRF with the next
 
 csv_import("vrfs", "vrfs", VRF_COLS, vrf_from_row, required=["name", "vrf_id", "vlan_id"])
 
-groups = sorted(set(p.attach_groups()) | {v.vrf_attach_group for v in p.vrfs if v.vrf_attach_group})
+groups = sorted(set(p.attach_groups("vrf")) | {v.vrf_attach_group for v in p.vrfs if v.vrf_attach_group})
 
+st.caption(TABLE_HELP)
 with st.form("vrfs"):
     df = st.data_editor(
         frame([v.to_nac() for v in p.vrfs], VRF_COLS),

@@ -1,7 +1,9 @@
 """Turn a Project into the host_vars/<fabric>/*.nac.yaml files."""
 
 import io
+import re
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml as pyyaml
@@ -9,6 +11,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
 from . import __version__
+from .merge import keep
 from .models import Project
 
 GLOBAL = "global.nac.yaml"
@@ -16,7 +19,8 @@ TOPOLOGY = "topology_switches.nac.yaml"
 UNDERLAY = "underlay.nac.yaml"
 VRFS = "vrfs.nac.yaml"
 NETWORKS = "networks.nac.yaml"
-FILE_ORDER = [GLOBAL, TOPOLOGY, UNDERLAY, VRFS, NETWORKS]
+OTHER = "other.nac.yaml"  # imported sections the app doesn't model (policy, multisite, ...)
+FILE_ORDER = [GLOBAL, TOPOLOGY, UNDERLAY, VRFS, NETWORKS, OTHER]
 
 # Always quoted: values Ansible (YAML 1.1) could mis-type, e.g. ASN 65001 -> int,
 # a MAC such as 12:34:56:12:34:56 -> sexagesimal int, an all-digit serial -> int.
@@ -54,38 +58,59 @@ def _quote(obj, key=None):
 
 
 def build_documents(p: Project) -> dict[str, dict]:
-    """Return {filename: data} for every file that has content."""
-    docs: dict[str, dict] = {
-        GLOBAL: {"vxlan": {"fabric": p.fabric.to_nac(), "global": {"ibgp": p.ibgp.to_nac()}}},
-        UNDERLAY: {"vxlan": {"underlay": p.underlay.to_nac()}},
-    }
-    if p.switches:
-        docs[TOPOLOGY] = {"vxlan": {"topology": {"switches": [s.to_nac() for s in p.switches]}}}
+    """Return {filename: data} for every file that has content.
 
-    groups = p.attach_groups()
+    Settings preserved from an imported fabric are merged back in; generated values win.
+    """
+    pv = p.preserved
+    ibgp = keep(p.ibgp.to_nac(), pv.ibgp)
+    docs: dict[str, dict] = {
+        GLOBAL: {"vxlan": {"fabric": keep(p.fabric.to_nac(), pv.fabric), "global": keep({"ibgp": ibgp}, pv.global_extra)}},
+        UNDERLAY: {"vxlan": {"underlay": keep(p.underlay.to_nac(), pv.underlay)}},
+    }
+    if p.switches or pv.topology:
+        switches = [keep(s.to_nac(), pv.switches.get(s.name)) for s in p.switches]
+        docs[TOPOLOGY] = {"vxlan": {"topology": keep({"switches": switches}, pv.topology)}}
 
     if p.vrfs:
-        used = list(dict.fromkeys(v.vrf_attach_group for v in p.vrfs if v.vrf_attach_group in groups))
-        vrf_groups = [
-            {"name": g, "switches": [{"hostname": h} for h in dict.fromkeys(a.hostname for a in groups[g])]}
-            for g in used
-        ]
-        docs[VRFS] = {"vxlan": {"overlay": {"vrfs": [v.to_nac() for v in p.vrfs], "vrf_attach_groups": vrf_groups}}}
+        groups = _attach_groups(p, "vrf", {v.vrf_attach_group for v in p.vrfs})
+        docs[VRFS] = {"vxlan": {"overlay": {"vrfs": [keep(v.to_nac(), pv.vrfs.get(v.name)) for v in p.vrfs],
+                                            "vrf_attach_groups": groups}}}
 
-    if p.networks:
-        used = list(dict.fromkeys(n.network_attach_group for n in p.networks if n.network_attach_group in groups))
-        net_groups = []
-        for g in used:
-            ports: dict[str, list[str]] = {}
-            for a in groups[g]:
-                ports.setdefault(a.hostname, [])
-                ports[a.hostname] += [x for x in a.ports if x not in ports[a.hostname]]
-            net_groups.append({"name": g, "switches": [{"hostname": h, "ports": pl} for h, pl in ports.items()]})
-        docs[NETWORKS] = {
-            "vxlan": {"overlay": {"networks": [n.to_nac() for n in p.networks], "network_attach_groups": net_groups}}
-        }
+    if p.networks or pv.overlay:
+        groups = _attach_groups(p, "network", {n.network_attach_group for n in p.networks})
+        overlay = {"networks": [keep(n.to_nac(), pv.networks.get(n.name)) for n in p.networks],
+                   "network_attach_groups": groups}
+        docs[NETWORKS] = {"vxlan": {"overlay": keep(overlay, pv.overlay)}}
+
+    if pv.other:
+        docs[OTHER] = {"vxlan": pv.other}
 
     return {name: _prune(docs[name]) for name in FILE_ORDER if name in docs}
+
+
+def _attach_groups(p: Project, kind: str, referenced: set) -> list[dict]:
+    """Groups for vrf_attach_groups / network_attach_groups.
+
+    A group is written when a VRF/network uses it, or when it has rows meant only for
+    this kind (imported groups nobody references yet).
+    """
+    pv = p.preserved
+    out = []
+    for g, rows in p.attach_groups(kind).items():
+        if g not in referenced and not any(a.used_for == kind for a in rows):
+            continue
+        switches: dict[str, list[str]] = {}
+        for a in rows:
+            ports = switches.setdefault(a.hostname, [])
+            if kind == "network":
+                ports += [x for x in a.ports if x not in ports]
+        entries = []
+        for h, ports in switches.items():
+            entry = {"hostname": h, "ports": ports} if kind == "network" else {"hostname": h}
+            entries.append(keep(entry, pv.attach.get(f"{kind}/{g}/{h}")))
+        out.append(keep({"name": g, "switches": entries}, pv.attach_groups.get(f"{kind}/{g}")))
+    return out
 
 
 def render_yaml(doc: dict) -> str:
@@ -107,6 +132,7 @@ def host_vars_dir(p: Project, repo_root: Path) -> Path:
 
 
 def write_host_vars(p: Project, repo_root: Path) -> list[Path]:
+    """Write into <repo_root>/host_vars/<fabric>/ (used for validation in a temp dir)."""
     dest = host_vars_dir(p, repo_root)
     dest.mkdir(parents=True, exist_ok=True)
     written = []
@@ -115,6 +141,65 @@ def write_host_vars(p: Project, repo_root: Path) -> list[Path]:
         path.write_text(text)
         written.append(path)
     return written
+
+
+@dataclass
+class WritePlan:
+    dest: Path
+    new: list[str]  # generated files that don't exist yet
+    replace: list[str]  # generated files that will overwrite existing ones
+    stale: list[str]  # existing YAML whose content is now in the generated files (remove to avoid duplicates)
+    unrelated: list[str]  # other existing NaC YAML in the folder that wasn't imported (left alone)
+
+
+def _existing_yaml(dest: Path) -> list[str]:
+    if not dest.is_dir():
+        return []
+    return sorted(
+        f.relative_to(dest).as_posix()
+        for f in dest.rglob("*")
+        if f.is_file() and f.suffix in (".yaml", ".yml") and not any(x.startswith(".") for x in f.relative_to(dest).parts)
+    )
+
+
+def plan_write(p: Project, dest: Path) -> WritePlan:
+    """Work out what writing the fabric into `dest` (a host_vars/<fabric> folder) will do."""
+    dest = Path(dest).expanduser()
+    out = set(render_all(p))
+    existing = _existing_yaml(dest)
+    same_source = p.preserved.source not in (None, "upload") and Path(p.preserved.source).resolve() == dest.resolve()
+    imported = set(p.preserved.files) if same_source else set()
+    stale, unrelated = [], []
+    for rel in existing:
+        if rel in out:
+            continue
+        if rel in imported or rel in FILE_ORDER:
+            stale.append(rel)
+        elif re.search(r"(?m)^vxlan\s*:", (dest / rel).read_text(encoding="utf-8", errors="ignore")):
+            unrelated.append(rel)
+    return WritePlan(
+        dest=dest,
+        new=sorted(n for n in out if n not in existing),
+        replace=sorted(n for n in out if n in existing),
+        stale=stale,
+        unrelated=unrelated,
+    )
+
+
+def apply_write(p: Project, dest: Path, remove_stale: bool) -> tuple[list[str], list[str]]:
+    """Write the generated files into `dest`; optionally delete the stale ones. Returns (written, removed)."""
+    plan = plan_write(p, dest)
+    plan.dest.mkdir(parents=True, exist_ok=True)
+    written = []
+    for name, text in render_all(p).items():
+        (plan.dest / name).write_text(text)
+        written.append(name)
+    removed = []
+    if remove_stale:
+        for rel in plan.stale:
+            (plan.dest / rel).unlink()
+            removed.append(rel)
+    return written, removed
 
 
 def zip_bytes(p: Project) -> bytes:

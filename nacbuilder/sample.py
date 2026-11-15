@@ -82,7 +82,9 @@ def example_project() -> Project:
                     int_desc="Configured by NetAsCode", network_attach_group="leaf2"),
         ],
         attachments=[
-            *[Attachment(group="all", hostname=h, ports=ports if h in _LEAFS[:2] else []) for h in _LEAFS],
+            # VRF group "all" has all four leafs; network group "all" only leaf1/leaf2 (with ports).
+            *[Attachment(group="all", hostname=h, ports=ports, used_for="both") for h in _LEAFS[:2]],
+            *[Attachment(group="all", hostname=h, used_for="vrf") for h in _LEAFS[2:]],
             *[Attachment(group=f"leaf{i}", hostname=h) for i, h in enumerate(_LEAFS, 1)],
         ],
     )

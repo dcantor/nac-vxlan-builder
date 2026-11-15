@@ -137,6 +137,12 @@ def check_project(p: Project) -> list[Issue]:
     for name in groups:
         if name not in used:
             warn("Attach groups", f"Group {name} isn't used by any VRF or network.")
+    vrf_groups = p.attach_groups("vrf")
+    net_groups = p.attach_groups("network")
+    for name, rows in groups.items():
+        for a in rows:
+            if a.used_for == "vrf" and a.ports:
+                warn("Attach groups", f"Group {name}: ports on {a.hostname} are ignored because the row is used for VRFs only.")
 
     # --- VRFs -----------------------------------------------------------------
     for d in _dups(v.name for v in p.vrfs):
@@ -150,6 +156,8 @@ def check_project(p: Project) -> list[Issue]:
             warn("VRFs", f"VRF {v.name} has no attach group, so it won't be deployed to any switch.")
         elif v.vrf_attach_group not in groups:
             err("VRFs", f"VRF {v.name} uses attach group {v.vrf_attach_group}, which doesn't exist.")
+        elif v.vrf_attach_group not in vrf_groups:
+            err("VRFs", f"VRF {v.name} uses attach group {v.vrf_attach_group}, which has no rows used for VRFs.")
 
     # --- networks -------------------------------------------------------------
     vrfs = {v.name: v for v in p.vrfs}
@@ -168,21 +176,35 @@ def check_project(p: Project) -> list[Issue]:
             warn("Networks" if hasattr(v, "net_id") else "VRFs", f"{v.name}: VLAN {v.vlan_id} is in the NX-OS reserved range 3968-4094.")
     for n in p.networks:
         if not n.vrf_name:
-            err("Networks", f"Network {n.name} has no VRF (Layer-2-only networks aren't supported yet).")
+            if not p.preserved.networks.get(n.name, {}).get("is_l2_only"):
+                err("Networks", f"Network {n.name} has no VRF (Layer-2-only networks aren't supported yet).")
         elif n.vrf_name not in vrfs:
             err("Networks", f"Network {n.name} uses VRF {n.vrf_name}, which doesn't exist.")
         if not n.network_attach_group:
             warn("Networks", f"Network {n.name} has no attach group, so it won't be deployed to any switch.")
         elif n.network_attach_group not in groups:
             err("Networks", f"Network {n.name} uses attach group {n.network_attach_group}, which doesn't exist.")
+        elif n.network_attach_group not in net_groups:
+            err("Networks", f"Network {n.name} uses attach group {n.network_attach_group}, which has no rows used for networks.")
         elif n.vrf_name in vrfs:
-            vrf_hosts = {a.hostname for a in groups.get(vrfs[n.vrf_name].vrf_attach_group or "", [])}
-            missing = sorted({a.hostname for a in groups[n.network_attach_group]} - vrf_hosts)
+            vrf_hosts = {a.hostname for a in vrf_groups.get(vrfs[n.vrf_name].vrf_attach_group or "", [])}
+            missing = sorted({a.hostname for a in net_groups[n.network_attach_group]} - vrf_hosts)
             if missing:
                 warn("Networks", f"Network {n.name} is attached to {', '.join(missing)}, where VRF {n.vrf_name} isn't attached.")
     gws = [(n.name, n.gw_ip_address.network) for n in p.networks if n.gw_ip_address]
     for (a, na), (b, nb) in combinations(gws, 2):
         if na.overlaps(nb):
             warn("Networks", f"Gateway subnets of {a} ({na}) and {b} ({nb}) overlap.")
+
+    # --- settings kept from an imported fabric --------------------------------
+    pv = p.preserved
+    for section, label, kept, names in (
+        ("Switches", "Switch", pv.switches, {s.name for s in p.switches}),
+        ("VRFs", "VRF", pv.vrfs, {v.name for v in p.vrfs}),
+        ("Networks", "Network", pv.networks, {n.name for n in p.networks}),
+    ):
+        for name in sorted(set(kept) - names):
+            keys = ", ".join(sorted(kept[name]))
+            warn(section, f"{label} {name} was removed or renamed, so its imported settings ({keys}) won't be written.")
 
     return issues

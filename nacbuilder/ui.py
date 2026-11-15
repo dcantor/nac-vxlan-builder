@@ -16,6 +16,11 @@ from .models import Project
 from .tabular import TEMPLATES, build_rows, clean, fmt_errors, import_csv, records, template_csv  # noqa: F401 (re-exported)
 
 
+TABLE_HELP = (
+    "Add a row with the empty line at the bottom (or +). To delete, tick the rows on the left and press Delete or click the trash icon. Changes are kept only after **Save**."
+)
+
+
 def project() -> Project:
     if "project" not in st.session_state:
         st.session_state.project = Project()

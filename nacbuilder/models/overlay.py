@@ -2,7 +2,7 @@
 
 import re
 from ipaddress import IPv4Interface, IPv6Interface
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import Field, field_validator
 
@@ -45,12 +45,25 @@ class Network(NacModel):
         return v
 
 
+USED_FOR = ("both", "vrf", "network")
+
+
 class Attachment(NacModel):
-    """One row of an attach group: a switch (and, for networks, its access ports)."""
+    """One row of an attach group: a switch (and, for networks, its access ports).
+
+    `used_for` says which list the row is written to: `vrf_attach_groups`,
+    `network_attach_groups` or both. A group can then have different members for VRFs
+    and networks, as in Cisco's example where VRF group `all` has four leafs but
+    network group `all` has only two.
+    """
 
     group: str = Field(min_length=1, max_length=64, pattern=NAME_RE)
     hostname: str = Field(min_length=1)
     ports: list[str] = Field(default_factory=list)
+    used_for: Literal[USED_FOR] = "both"
+
+    def applies_to(self, kind: str) -> bool:
+        return self.used_for in ("both", kind)
 
     @field_validator("ports", mode="before")
     @classmethod

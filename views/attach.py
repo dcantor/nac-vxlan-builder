@@ -4,8 +4,8 @@ import streamlit as st
 from pydantic import ValidationError
 
 from nacbuilder.defaults import group_all_leafs, groups_per_border_set, groups_per_leaf, merge_attachments
-from nacbuilder.models import Attachment
-from nacbuilder.ui import build_rows, fmt_errors, frame, key, project, records, save, section_issues, show_errors
+from nacbuilder.models import USED_FOR, Attachment
+from nacbuilder.ui import TABLE_HELP, build_rows, fmt_errors, frame, key, project, records, save, section_issues, show_errors
 
 p = project()
 
@@ -39,9 +39,18 @@ if add_all or add_each or add_border:
     except ValidationError as e:
         show_errors(fmt_errors(e))
 
-COLS = {"group": "string", "hostname": "string", "ports": "string"}
 names = [s.name for s in p.switches]
-rows = [{"group": a.group, "hostname": a.hostname, "ports": ", ".join(a.ports)} for a in p.attachments]
+orphans = [a for a in p.attachments if a.hostname not in names]
+if orphans:
+    hosts = sorted({a.hostname for a in orphans})
+    c1, c2 = st.columns([3, 1], vertical_alignment="center")
+    c1.warning(f"{len(orphans)} row(s) point at switches that no longer exist: {', '.join(hosts)}.", icon="⚠️")
+    if c2.button("Remove those rows", use_container_width=True):
+        save(f"Removed {len(orphans)} row(s)", attachments=[a for a in p.attachments if a.hostname in names])
+
+COLS = {"group": "string", "hostname": "string", "used_for": "string", "ports": "string"}
+rows = [{"group": a.group, "hostname": a.hostname, "used_for": a.used_for, "ports": ", ".join(a.ports)} for a in p.attachments]
+st.caption(TABLE_HELP)
 
 with st.form("attach"):
     df = st.data_editor(
@@ -52,6 +61,10 @@ with st.form("attach"):
         column_config={
             "group": st.column_config.TextColumn("Group", required=True),
             "hostname": st.column_config.SelectboxColumn("Switch", options=sorted(set(names) | {a.hostname for a in p.attachments}), required=True),
+            "used_for": st.column_config.SelectboxColumn(
+                "Used for", options=list(USED_FOR), default="both", required=True,
+                help="both = VRF and network attach groups; vrf / network = only that list",
+            ),
             "ports": st.column_config.TextColumn("Ports", help="Comma separated, e.g. Ethernet1/13, port-channel10"),
         },
     )
@@ -68,7 +81,14 @@ groups = p.attach_groups()
 if groups:
     st.subheader("Summary", divider="gray")
     st.dataframe(
-        [{"group": g, "switches": len(r), "members": ", ".join(a.hostname for a in r)} for g, r in groups.items()],
+        [
+            {
+                "group": g,
+                "VRF members": ", ".join(a.hostname for a in r if a.applies_to("vrf")),
+                "network members": ", ".join(a.hostname for a in r if a.applies_to("network")),
+            }
+            for g, r in groups.items()
+        ],
         use_container_width=True,
         hide_index=True,
     )

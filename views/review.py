@@ -3,7 +3,7 @@ from pathlib import Path
 import streamlit as st
 
 from nacbuilder.checks import check_project
-from nacbuilder.generate import host_vars_dir, render_all, write_host_vars, zip_bytes
+from nacbuilder.generate import apply_write, plan_write, render_all, zip_bytes
 from nacbuilder.validate import nac_validate
 from nacbuilder.ui import project
 
@@ -29,13 +29,17 @@ if c1.button("Run nac-validate", icon=":material/rule:", help="Validates the fil
         res = nac_validate(p)
     st.session_state.last_validation = res
 if res := st.session_state.get("last_validation"):
+    mode = "" if res.strict else " (non-strict: imported settings outside the bundled schema are allowed)"
     if res.ok:
-        c2.success("nac-validate passed against the schema.", icon="✅")
+        c2.success(f"nac-validate passed against the schema{mode}.", icon="✅")
     else:
         c2.error("nac-validate reported problems:", icon="⛔")
         st.code(res.output or "(no output)", language="text")
 
 st.subheader("Files", divider="gray")
+if kept := p.preserved.summary():
+    with st.expander(f"Imported settings kept unchanged ({len(kept)})", icon=":material/inventory_2:"):
+        st.markdown("\n".join(f"- {k}" for k in kept))
 files = render_all(p)
 tabs = st.tabs(list(files))
 for tab, (name, text) in zip(tabs, files.items()):
@@ -55,20 +59,48 @@ st.download_button(
     type="primary",
 )
 
-with st.form("write"):
-    st.markdown("**Write into a NaC repo**, e.g. a clone of `ansible-dc-vxlan-example`")
-    root = st.text_input("Repo folder", str(Path.home() / "nac-nd"))
-    st.caption(f"Files go to `<repo>/host_vars/{p.fabric.name}/`. Existing files with the same names are replaced.")
-    overwrite = st.checkbox("Replace existing files")
-    go = st.form_submit_button("Write files")
-if go:
-    repo = Path(root).expanduser()
-    dest = host_vars_dir(p, repo)
-    existing = [n for n in files if (dest / n).exists()]
-    if not repo.is_dir():
-        st.error(f"{repo} isn't a folder.")
-    elif existing and not overwrite:
-        st.warning(f"{', '.join(existing)} already exist in {dest}. Tick **Replace existing files** to overwrite them.")
-    else:
-        written = write_host_vars(p, repo)
-        st.success(f"Wrote {len(written)} file(s) to {dest}")
+st.markdown("**Write into a NaC repo**")
+pv = p.preserved
+imported_from_folder = pv.source not in (None, "upload")
+default_dest = pv.source if imported_from_folder else str(Path.home() / "nac-nd" / "host_vars" / p.fabric.name)
+dest_txt = st.text_input(
+    "Fabric folder (`<repo>/host_vars/<fabric>`)",
+    default_dest,
+    key=f"dest_{p.fabric.name}",
+    help="Defaults to the folder the fabric was imported from.",
+)
+dest = Path(dest_txt).expanduser()
+if not dest.parent.is_dir():
+    st.error(f"{dest.parent} doesn't exist.")
+else:
+    plan = plan_write(p, dest)
+    lines = []
+    if plan.new:
+        lines.append(f"- Create: {', '.join(f'`{n}`' for n in plan.new)}")
+    if plan.replace:
+        lines.append(f"- Replace: {', '.join(f'`{n}`' for n in plan.replace)}")
+    st.markdown("\n".join(lines))
+    confirm = True
+    if plan.replace:
+        confirm = st.checkbox(f"Replace {len(plan.replace)} existing file(s)")
+    remove = False
+    if plan.stale:
+        st.warning(
+            f"{', '.join(f'`{n}`' for n in plan.stale)} hold data that's now in the generated files. NaC merges every "
+            "file in the folder, so if they stay, switches, VRFs or networks you deleted here come back, and "
+            "the rest are duplicated.",
+            icon="⚠️",
+        )
+        remove = st.checkbox(f"Delete {len(plan.stale)} superseded file(s)", value=False)
+    if plan.unrelated:
+        st.info(
+            f"Other NaC files in this folder are left alone: {', '.join(f'`{n}`' for n in plan.unrelated)}. "
+            "Make sure they don't define the same switches, VRFs or networks.",
+            icon=":material/info:",
+        )
+    if st.button("Write files", disabled=not confirm, icon=":material/save:"):
+        written, removed = apply_write(p, dest, remove_stale=remove)
+        msg = f"Wrote {len(written)} file(s) to {dest}"
+        if removed:
+            msg += f" and deleted {', '.join(removed)}"
+        st.success(msg + ".")

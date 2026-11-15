@@ -3,7 +3,7 @@ import streamlit as st
 from nacbuilder.defaults import next_network
 from nacbuilder.tabular import NETWORK_COLS
 from nacbuilder.tabular import network_from_row as from_row
-from nacbuilder.ui import build_rows, csv_import, frame, key, project, records, save, section_issues, show_errors
+from nacbuilder.ui import TABLE_HELP, build_rows, csv_import, frame, key, project, records, save, section_issues, show_errors
 
 p = project()
 
@@ -19,8 +19,9 @@ COLS = NETWORK_COLS
 csv_import("networks", "networks", COLS, from_row, required=["name", "vrf_name", "net_id", "vlan_id"])
 
 vrf_names = sorted({v.name for v in p.vrfs} | {n.vrf_name for n in p.networks if n.vrf_name})
-groups = sorted(set(p.attach_groups()) | {n.network_attach_group for n in p.networks if n.network_attach_group})
+groups = sorted(set(p.attach_groups("network")) | {n.network_attach_group for n in p.networks if n.network_attach_group})
 
+st.caption(TABLE_HELP)
 with st.form("networks"):
     df = st.data_editor(
         frame([n.to_nac() for n in p.networks], COLS),

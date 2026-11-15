@@ -11,6 +11,7 @@ from nacbuilder.ui import key, project, set_project, show_flash
 st.set_page_config(page_title="NaC VXLAN Builder", page_icon=":material/lan:", layout="wide")
 
 pages = [
+    st.Page("views/import_yaml.py", title="Import YAML", icon=":material/upload_file:"),
     st.Page("views/fabric.py", title="1. Fabric", icon=":material/hub:", default=True),
     st.Page("views/switches.py", title="2. Switches", icon=":material/dns:"),
     st.Page("views/underlay.py", title="3. Underlay", icon=":material/route:"),

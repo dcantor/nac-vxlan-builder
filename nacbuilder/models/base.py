@@ -8,7 +8,10 @@ class NacModel(BaseModel):
     written straight into a `*.nac.yaml` file.
     """
 
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, validate_assignment=True)
+    # coerce_numbers_to_str: imported YAML often has unquoted all-digit serials or names.
+    model_config = ConfigDict(
+        extra="forbid", str_strip_whitespace=True, validate_assignment=True, coerce_numbers_to_str=True
+    )
 
     def to_nac(self) -> dict:
         return self.model_dump(mode="json", exclude_none=True)

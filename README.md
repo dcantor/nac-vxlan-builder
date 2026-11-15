@@ -38,6 +38,40 @@ Networks → Review & export**. Each page has a **Save** button; nothing is kept
 Use **Load example** in the sidebar to explore with a sample fabric that follows the design standard, and
 **Save project (.json)** to come back to a fabric later.
 
+### Import existing YAML
+
+Use the **Import YAML** page to edit a fabric that already lives in a NaC repo:
+
+1. Point it at your repo, its `host_vars` folder or the fabric folder, and click **Read folder**.
+   You can also upload the YAML files, or a zip like the one this app exports.
+2. Review the summary and click **Load into the app**.
+3. Add, change or delete switches, VRFs, networks and attach groups on their pages. To delete
+   rows, tick them on the left of the table, press Delete (or click the trash icon), then **Save**.
+4. On **Review & export**, write back to the same folder.
+
+How it works:
+
+- **Merging:** every YAML file in the folder with a top-level `vxlan:` key is read and merged
+  the way NaC does it. Other files, such as Ansible connection vars, are skipped.
+- **Unknown settings are kept:** anything the app doesn't edit is carried through unchanged.
+  That includes interfaces, `vpc_peers`, policies, `ibgp.vpc` and extra VRF or network options
+  like `arp_suppress` or `is_l2_only`. The **Kept unchanged** list shows what was found.
+  If you delete or rename an item, its kept settings are dropped, and the checks tell you.
+- **Output files:** the generated files always use this app's five-file layout, plus
+  `other.nac.yaml` for sections like `policy`. When writing back, the app lists files that
+  are now superseded (for example an `overlay.nac.yaml` you imported) and offers to delete
+  them. NaC merges every file in the folder, so leaving them would bring back deleted items and
+  duplicate the rest.
+- **Validation:** fabrics with kept settings are validated with `nac-validate --non-strict`,
+  because the bundled schema is a simplified one.
+- **Attach groups:** each attach group row has a **Used for** column (`both`, `vrf` or
+  `network`), so a group can have different members for VRFs and networks, as in Cisco's
+  example.
+- **Border sets:** the YAML has no border set field, so it's guessed from the switch name
+  (`client`, `int`/`internal`, `ext`/`external`). Check it on the Switches page.
+- **Not supported:** only iBGP `VXLAN_EVPN` fabrics can be imported, and `!env` or `!vault`
+  tags must be resolved first.
+
 ### CSV import
 
 The Switches, VRFs and Networks pages each have an **Import CSV** panel:
