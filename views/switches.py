@@ -3,8 +3,8 @@ from pydantic import ValidationError
 
 from nacbuilder import hardware as hw
 from nacbuilder import standards as std
-from nacbuilder.defaults import generate_external_switches, generate_switches
-from nacbuilder.models import ROLES
+from nacbuilder.defaults import generate_external_switches, generate_switches, model_key
+from nacbuilder.models import ROLES, Project
 from nacbuilder.tabular import SWITCH_COLS, switch_from_row, switch_to_row
 from nacbuilder.ui import TABLE_HELP, build_rows, csv_import, fmt_errors, frame, key, project, records, save, section_issues, show_errors
 
@@ -15,7 +15,11 @@ S = std.get(p.standard)
 if S.vxlan:
     st.caption(f"{S.label}: spines, leafs and borders with their management addresses → `topology_switches.nac.yaml`")
     counts = {"Super spines": sum(s.role == "super_spine" for s in p.switches)} if p.has_super_spines else {}
-    counts |= {"Spines": sum(s.role == "spine" for s in p.switches), "Leafs": sum(s.role == "leaf" for s in p.switches)}
+    counts |= {"Spines": sum(s.role == "spine" for s in p.switches)}
+    if p.leaf_roles:
+        counts |= {p.leaf_role_label(r): sum(s.role == "leaf" and s.leaf_role == r for s in p.switches) for r in p.leaf_roles}
+    else:
+        counts |= {"Leafs": sum(s.role == "leaf" for s in p.switches)}
     counts |= {f"{v} borders": sum(s.border_set == k for s in p.switches) for k, v in S.border_sets.items()}
     targets = {"Super spines": p.super_spines, "Spines": S.spine_count}
     targets |= {f"{v} borders": S.borders_per_set for v in S.border_sets.values()}
@@ -33,12 +37,32 @@ COLS = SWITCH_COLS
 to_row = switch_to_row
 from_row = switch_from_row
 
+# --- leaf roles (compute, storage, ...) ----------------------------------------------------
+if S.vxlan:
+    with st.expander(f"Leaf roles{': ' + ', '.join(p.leaf_roles) if p.leaf_roles else ''}",
+                     expanded=False, icon=":material/category:"):
+        st.caption("Optional sub-roles for leafs, such as compute and storage. Each leaf gets one (Leaf role column). "
+                   "Quick generate, hardware models, vPC pairing, attach groups and the diagram then work per leaf "
+                   "role. Leaf roles are kept in the project, not written to the YAML.")
+        with st.form("leaf_roles"):
+            roles_txt = st.text_input("Leaf roles (comma separated; blank = none)", ", ".join(p.leaf_roles),
+                                      placeholder="compute, storage")
+            set_roles = st.form_submit_button("Save leaf roles")
+        if set_roles:
+            try:
+                new_roles = Project(leaf_roles=roles_txt).leaf_roles
+                save(f"Leaf roles: {', '.join(new_roles) or 'none'}", leaf_roles=new_roles)
+            except ValidationError as e:
+                show_errors(fmt_errors(e))
+
 # --- hardware: a Nexus 9300 model per role -----------------------------------------------
 if S.vxlan:
-    roles = (["super_spine"] if p.has_super_spines else []) + ["spine", "leaf", "border"]
+    leaf_keys = [model_key("leaf", r) for r in p.leaf_roles] or ["leaf"]
+    roles = (["super_spine"] if p.has_super_spines else []) + ["spine", *leaf_keys, "border"]
 else:
     roles = ["core_router", "edge_router"]
-picks_default = {r: p.role_models.get(r) or hw.suggested().get(r) for r in roles}
+picks_default = {r: p.role_models.get(r) or p.role_models.get(r.split(":")[0]) or hw.suggested().get(r.split(":")[0])
+                 for r in roles}
 with st.expander("Hardware: Nexus 9300 models", expanded=not p.role_models, icon=":material/memory:"):
     st.caption("Pick a model per role. Port numbering follows it: spine uplinks, vPC peer links, host ports, VRF-lite "
                "uplinks and the cabling plan, and interfaces are checked against the model's ports. Models are kept "
@@ -47,10 +71,10 @@ with st.expander("Hardware: Nexus 9300 models", expanded=not p.role_models, icon
         picks = {}
         cols = st.columns(len(roles))
         for col, role in zip(cols, roles):
-            options = hw.models_for(role)
+            options = hw.models_for(role.split(":")[0])
             cur = picks_default[role] if picks_default[role] in options else options[0]
-            picks[role] = col.selectbox(role.replace("_", " ").title(), options, index=options.index(cur),
-                                        key=f"hw_{role}")
+            label = p.leaf_role_label(role.split(":")[1]) if ":" in role else role.replace("_", " ").title()
+            picks[role] = col.selectbox(label, options, index=options.index(cur), key=f"hw_{role}")
             col.caption(hw.get(picks[role]).layout())
         overwrite = st.checkbox("Also replace models already set on individual switches", value=False)
         apply = st.form_submit_button("Apply to switches", type="primary")
@@ -58,7 +82,7 @@ with st.expander("Hardware: Nexus 9300 models", expanded=not p.role_models, icon
         changed = 0
         new_sw = []
         for sw in p.switches:
-            want = picks.get(sw.role)
+            want = picks.get(model_key(sw.role, sw.leaf_role)) or picks.get(sw.role)
             if want and (overwrite or not sw.model) and sw.model != want:
                 sw = sw.model_copy(update={"model": want})
                 changed += 1
@@ -78,7 +102,13 @@ with st.expander("Quick generate", expanded=not p.switches, icon=":material/bolt
     with st.form("generate"):
         c1, c2, c3 = st.columns(3)
         prefix = c1.text_input("Name prefix", "dc1" if S.vxlan else "ext1")
-        if S.vxlan:
+        if S.vxlan and p.leaf_roles:
+            per_role = {}
+            for n, r in enumerate(p.leaf_roles):
+                per_role[r] = (c2 if n % 2 == 0 else c3).number_input(p.leaf_role_label(r), 0, 128, 4 if n == 0 else 2,
+                                                                       key=f"gen_{r}")
+            leafs = per_role
+        elif S.vxlan:
             leafs = c2.number_input("Leafs", 0, 128, 4)
         else:
             core = c2.number_input("Core routers", 0, 64, 2)
@@ -115,6 +145,10 @@ with st.form("switches"):
             "role": st.column_config.SelectboxColumn("Role", options=list(ROLES), default="leaf", required=True),
             "border_set": st.column_config.SelectboxColumn(
                 "Border set", options=list(std.BORDER_SETS), help="Borders only: client, internal or external pair"
+            ),
+            "leaf_role": st.column_config.SelectboxColumn(
+                "Leaf role", options=sorted(set(p.leaf_roles) | {x.leaf_role for x in p.switches if x.leaf_role}),
+                help="Leafs only: compute, storage, ... (define them under Leaf roles)"
             ),
             "model": st.column_config.SelectboxColumn(
                 "Model", options=sorted(set(hw.catalog()) | {x.model for x in p.switches if x.model}),

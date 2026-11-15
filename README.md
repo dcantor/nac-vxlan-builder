@@ -152,7 +152,7 @@ The Switches, vPC pairs, Interfaces, VRFs and Networks pages each have an **Impo
 
 | Table | Required columns | Optional columns |
 |---|---|---|
-| Switches | `name` | `role` (default `leaf`), `border_set` (`client`/`internal`/`external`), `serial_number`, `management_ipv4_address`, `subnet_mask_ipv4`, `default_gateway_v4` |
+| Switches | `name` | `role` (default `leaf`), `border_set` (`client`/`internal`/`external`), `leaf_role`, `model`, `serial_number`, `management_ipv4_address`, `subnet_mask_ipv4`, `default_gateway_v4` |
 | VRFs | `name`, `vrf_id`, `vlan_id` | `vrf_attach_group` |
 | vPC pairs | `peer1`, `peer2` | `domain_id`, `fabric_peering`, `peer1_peerlink_interfaces`, `peer2_peerlink_interfaces` (comma separated) |
 | Interfaces | `switch`, `name`, `mode` | `description`, `access_vlan`, `trunk_allowed_vlans` (`10-20,50`), `native_vlan`, `members` (comma separated), `vpc_id`, `ipv4_address`, `vrf`, `dot1q_id`, `mtu`, `speed`, `enabled` |
@@ -160,6 +160,25 @@ The Switches, vPC pairs, Interfaces, VRFs and Networks pages each have an **Impo
 
 Headers are case-insensitive (`Border Set` works). Blank cells mean "not set", and booleans
 accept `true/yes/y/1/x`. To export a table, use the download icon on the table's toolbar.
+
+### Leaf roles (compute, storage, ...)
+
+On the Switches page, **Leaf roles** lets you define leaf sub-roles such as `compute, storage`.
+Each leaf then gets one in the **Leaf role** column, and the rest of the app works per leaf role:
+
+- **Counters and Quick generate:** a count per leaf role. Quick generate names leafs
+  `<prefix>-leaf-compute1..N`, `<prefix>-leaf-storage1..N`.
+- **Hardware:** a model per leaf role (for example 93180YC-FX for compute and 93240YC-FX2 for storage).
+- **vPC pairing:** pairs leafs only within their leaf role. A mixed pair gets a warning.
+- **Attach groups:** **+ group per leaf role** creates `leaf-compute`, `leaf-storage`, ..., so a
+  tenant or VLAN can be deployed to storage leafs only.
+- **Onboarding:** pick the leaf role for the new pair, which sets its names, model and group.
+- **Diagram and cabling:** leafs are grouped and labelled by role, and spine ports are assigned
+  role by role.
+- **Checks:** a leaf without a role gets a warning. An undefined role, or a role on a non-leaf, is an error.
+- **Import:** roles are guessed from names like `dc1-leaf-storage1`.
+
+Leaf roles are kept in the project file, not written to the YAML.
 
 ### Hardware: Nexus 9300 models
 

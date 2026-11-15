@@ -3,7 +3,7 @@ import re
 import streamlit as st
 from pydantic import ValidationError
 
-from nacbuilder.defaults import group_all_leafs, groups_per_border_set, groups_per_leaf, merge_attachments
+from nacbuilder.defaults import group_all_leafs, groups_per_border_set, groups_per_leaf, groups_per_leaf_role, merge_attachments
 from nacbuilder.models import USED_FOR, Attachment
 from nacbuilder.ui import TABLE_HELP, build_rows, fmt_errors, frame, key, project, records, save, section_issues, show_errors
 
@@ -20,19 +20,25 @@ if not p.switches:
 
 with st.form("quick_groups"):
     ports_txt = st.text_input("Access ports for quick groups (optional)", placeholder="Ethernet1/13, Ethernet1/14")
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     add_all = c1.form_submit_button("+ 'all' group", use_container_width=True, help="One group named 'all' with every leaf (no borders)")
     add_each = c2.form_submit_button("+ group per leaf", use_container_width=True, help="One group per leaf, named after the switch")
     add_border = c3.form_submit_button(
         "+ border groups", use_container_width=True, help="border-client, border-internal and border-external, one per border pair"
     )
-if add_all or add_each or add_border:
+    add_lr = c4.form_submit_button(
+        "+ group per leaf role", use_container_width=True, disabled=not p.leaf_roles,
+        help="leaf-compute, leaf-storage, ...: one group per leaf role (define leaf roles on the Switches page)"
+    )
+if add_all or add_each or add_border or add_lr:
     try:
         ports = [x for x in re.split(r"[,\s]+", ports_txt) if x]
         if add_all:
             new = group_all_leafs(p, ports=ports)
         elif add_each:
             new = groups_per_leaf(p, ports=ports)
+        elif add_lr:
+            new = groups_per_leaf_role(p, ports=ports)
         else:
             new = groups_per_border_set(p, ports=ports)
         save(f"Added {len(new)} attachment(s)", attachments=merge_attachments(p.attachments, new))

@@ -1,13 +1,14 @@
+import re
 from typing import Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from .base import NacModel
 from .fabric import FABRIC_TYPES, Fabric, GlobalIbgp, ManagementServer, SyslogServer
 from .interfaces import MODES, Interface, VpcPeer
 from .overlay import USED_FOR, Attachment, Network, Vrf
 from .preserved import Preserved
-from .topology import ATTACHABLE_ROLES, ROLES, SPINE_ROLES, Management, Switch
+from .topology import ATTACHABLE_ROLES, LEAF_ROLE_RE, ROLES, SPINE_ROLES, Management, Switch
 from .vrf_lite import VrfLite, VrfLitePeer, VrfLiteSwitch
 from .underlay import Underlay, UnderlayGeneral, UnderlayIpv4, UnderlayMulticast, UnderlayOspf
 
@@ -34,6 +35,25 @@ class Project(NacModel):
     super_spines: Optional[Literal[2, 4]] = None
     # App-only: hardware model picked per role on the Switches page (used for new switches).
     role_models: dict[str, str] = Field(default_factory=dict)
+    # App-only: leaf sub-roles (e.g. compute, storage). Empty = all leafs are alike.
+    leaf_roles: list[str] = Field(default_factory=list)
+
+    @field_validator("leaf_roles", mode="before")
+    @classmethod
+    def _leaf_roles(cls, v):
+        if isinstance(v, str):
+            v = [x for x in v.replace(",", " ").split() if x]
+        out = []
+        for x in v or []:
+            x = str(x).strip().lower()
+            if not re.fullmatch(LEAF_ROLE_RE, x):
+                raise ValueError(f"leaf role '{x}' must be lowercase letters, digits, - or _ (max 24)")
+            if x not in out:
+                out.append(x)
+        return out
+
+    def leaf_role_label(self, role: str | None) -> str:
+        return f"{role.replace('_', ' ').replace('-', ' ').title()} leafs" if role else "Leafs"
 
     @property
     def has_super_spines(self) -> bool:

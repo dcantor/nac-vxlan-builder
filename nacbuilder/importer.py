@@ -332,6 +332,16 @@ def project_from_data(data: dict, default_name: str | None = None) -> ImportResu
         preserved=Preserved(**pv),
         standard=standard,
     )
+    found_roles = []
+    for x in switches:
+        m = re.search(r"(?i)leaf[-_]([a-z][a-z0-9]*?)[-_]?\d+$", x.name) if x.role == "leaf" else None
+        if m:
+            x.leaf_role = m[1].lower()
+            if x.leaf_role not in found_roles:
+                found_roles.append(x.leaf_role)
+    if found_roles:
+        res.project.leaf_roles = found_roles
+        res.notes.append(f"Leaf roles guessed from names: {', '.join(found_roles)}. Check them on the Switches page.")
     supers = [s for s in switches if s.role == "super_spine"]
     if standard == "dc" and supers:
         res.project.super_spines = len(supers) if len(supers) in std.SUPER_SPINE_COUNTS else None

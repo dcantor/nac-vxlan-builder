@@ -26,9 +26,19 @@ from .models import (
 LEAF_ROLES = {"leaf", "tor"}
 
 
+def model_key(role: str, leaf_role: str | None = None) -> str:
+    """Key in Project.role_models: 'leaf:storage' for a leaf role, else the fabric role."""
+    return f"leaf:{leaf_role}" if role == "leaf" and leaf_role else role
+
+
+def model_for(role_models: dict | None, role: str, leaf_role: str | None = None) -> str | None:
+    rm = role_models or {}
+    return rm.get(model_key(role, leaf_role)) or rm.get(role)
+
+
 def generate_switches(
     prefix: str,
-    leafs: int,
+    leafs: "int | dict[str, int]",
     first_mgmt_ip: str | None = None,
     gateway: str | None = None,
     mask: int | None = None,
@@ -43,7 +53,14 @@ def generate_switches(
     """
     plan: list[tuple[str, str, str | None]] = [(f"superspine{i}", "super_spine", None) for i in range(1, super_spines + 1)]
     plan += [(f"spine{i}", "spine", None) for i in range(1, std.SPINE_COUNT + 1)]
-    plan += [(f"leaf{i}", "leaf", None) for i in range(1, leafs + 1)]
+    leaf_roles: dict[str, str] = {}
+    if isinstance(leafs, dict):  # {"compute": 4, "storage": 2} -> <prefix>-leaf-compute1..4, -leaf-storage1..2
+        for lr, count in leafs.items():
+            for i in range(1, count + 1):
+                plan.append((f"leaf-{lr}{i}", "leaf", None))
+                leaf_roles[f"leaf-{lr}{i}"] = lr
+    else:
+        plan += [(f"leaf{i}", "leaf", None) for i in range(1, leafs + 1)]
     for bset in std.BORDER_SETS:
         plan += [(f"border-{bset}{i}", "border", bset) for i in range(1, std.BORDERS_PER_SET + 1)]
 
@@ -53,8 +70,9 @@ def generate_switches(
         mgmt = None
         if ip or gateway or mask:
             mgmt = Management(management_ipv4_address=ip, default_gateway_v4=gateway or None, subnet_mask_ipv4=mask)
-        out.append(Switch(name=f"{prefix}-{suffix}", role=role, border_set=bset, management=mgmt,
-                          model=(role_models or {}).get(role)))
+        lr = leaf_roles.get(suffix)
+        out.append(Switch(name=f"{prefix}-{suffix}", role=role, border_set=bset, management=mgmt, leaf_role=lr,
+                          model=model_for(role_models, role, lr)))
         if ip:
             ip += 1
     return out
@@ -124,6 +142,16 @@ def groups_per_leaf(p: Project, ports: list[str] | None = None) -> list[Attachme
     return [Attachment(group=s.name, hostname=s.name, ports=ports or []) for s in _leafs(p)]
 
 
+def groups_per_leaf_role(p: Project, ports: list[str] | None = None) -> list[Attachment]:
+    """One group per leaf role: leaf-compute, leaf-storage, ..."""
+    return [
+        Attachment(group=f"leaf-{role}", hostname=s.name, ports=ports or [])
+        for role in p.leaf_roles
+        for s in sorted(p.switches, key=lambda s: _natural(s.name))
+        if s.role == "leaf" and s.leaf_role == role
+    ]
+
+
 def groups_per_border_set(p: Project, ports: list[str] | None = None) -> list[Attachment]:
     """One group per border pair: border-client, border-internal, border-external."""
     return [
@@ -156,8 +184,12 @@ def pair_vpc(p: Project, peerlink_ports: list[str] | None = None, fabric_peering
         members = sorted((s.name for s in p.switches if s.border_set == bset and s.name not in taken), key=_natural)
         if len(members) == 2:
             pairs.append((members[0], members[1]))
-    leafs = sorted((s.name for s in p.switches if s.role == "leaf" and s.name not in taken), key=_natural)
-    pairs += list(zip(leafs[0::2], leafs[1::2]))
+    # leafs pair up within their leaf role (compute with compute, storage with storage)
+    by_role: dict[str | None, list[str]] = {}
+    for s in sorted((s for s in p.switches if s.role == "leaf" and s.name not in taken), key=lambda s: _natural(s.name)):
+        by_role.setdefault(s.leaf_role, []).append(s.name)
+    for names in by_role.values():
+        pairs += list(zip(names[0::2], names[1::2]))
     # Non-VXLAN designs: core and edge routers pair up the same way
     for role in ("core_router", "edge_router"):
         rs = sorted((s.name for s in p.switches if s.role == role and s.name not in taken), key=_natural)

@@ -113,6 +113,18 @@ def check_project(p: Project) -> list[Issue]:
                 elif "border" in s.role and s.role != "border" and s.role not in SPINE_ROLES:
                     err("Switches", f"Standard: role {s.role} on {s.name} isn't part of the design; use border.")
 
+        # leaf sub-roles (compute, storage, ...)
+        for x in sw:
+            if x.leaf_role and x.role != "leaf":
+                err("Switches", f"{x.name} has leaf role {x.leaf_role}, but it's a {x.role}; only leafs have leaf roles.")
+            elif x.role == "leaf" and p.leaf_roles:
+                if not x.leaf_role:
+                    warn("Switches", f"{x.name} has no leaf role ({', '.join(p.leaf_roles)}).")
+                elif x.leaf_role not in p.leaf_roles:
+                    err("Switches", f"{x.name}: leaf role {x.leaf_role} isn't defined (leaf roles: {', '.join(p.leaf_roles)}).")
+        if not p.leaf_roles and any(x.leaf_role for x in sw):
+            warn("Switches", "Some leafs have a leaf role, but no leaf roles are defined on the Switches page.")
+
     else:  # Non-VXLAN design (NaC External fabric)
         for s in sw:
             if S.roles and s.role not in S.roles:
@@ -236,6 +248,10 @@ def check_project(p: Project) -> list[Issue]:
             if peer in paired:
                 err("vPC", f"{peer} is in two vPC pairs ({paired[peer]} and {label}).")
             paired[peer] = label
+        if (v.peer1 in by_name and v.peer2 in by_name and by_name[v.peer1].role == "leaf"
+                and by_name[v.peer1].leaf_role != by_name[v.peer2].leaf_role):
+            warn("vPC", f"{label}: peers have different leaf roles ({by_name[v.peer1].leaf_role or 'none'}, "
+                        f"{by_name[v.peer2].leaf_role or 'none'}).")
         if v.peer1 in by_name and v.peer2 in by_name and by_name[v.peer1].role != by_name[v.peer2].role:
             warn("vPC", f"{label}: peers have different roles ({by_name[v.peer1].role}, {by_name[v.peer2].role}).")
         links1, links2 = v.peer1_peerlink_interfaces, v.peer2_peerlink_interfaces

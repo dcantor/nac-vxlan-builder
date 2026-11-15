@@ -57,9 +57,11 @@ def render_svg(p: Project) -> str:
     }
 
     # Group the lower tier: leafs (vPC pairs together), then each border set, then anything else.
+    lr_order = {r: i for i, r in enumerate(p.leaf_roles)}
+
     def order_key(s):
         if s.role == "leaf":
-            tier = 0
+            tier = lr_order.get(s.leaf_role, len(lr_order)) / 100  # leafs grouped by leaf role, before borders
         elif s.border_set in std.BORDER_SETS:
             tier = 1 + list(std.BORDER_SETS).index(s.border_set)
         else:
@@ -68,7 +70,7 @@ def render_svg(p: Project) -> str:
 
     groups: list[list] = []
     placed = set()
-    for s in sorted(lower, key=order_key):
+    for s in sorted(lower, key=lambda s: (order_key(s), [int(t) if t.isdigit() else t for t in re.split(r'(\d+)', s.name)])):
         if s.name in placed:
             continue
         pair = p.vpc_peer_of(s.name)
@@ -143,6 +145,9 @@ def render_svg(p: Project) -> str:
     for grp, start, end, gy in group_spans:
         bset = grp[0].border_set if all(s.border_set == grp[0].border_set for s in grp) else None
         label = f"{std.BORDER_SETS[bset]} borders" if bset else ""
+        lr = grp[0].leaf_role if all(x.role == "leaf" and x.leaf_role == grp[0].leaf_role for x in grp) else None
+        if lr and p.leaf_roles:
+            label = p.leaf_role_label(lr)
         pair = p.vpc_peer_of(grp[0].name) if len(grp) == 2 else None
         if pair:
             label = (label + " · " if label else "") + f"vPC {pair.domain_id or ''}".strip()

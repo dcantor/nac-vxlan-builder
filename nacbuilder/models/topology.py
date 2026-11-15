@@ -3,7 +3,7 @@
 from ipaddress import IPv4Address
 from typing import Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from ..standards import BORDER_SETS
 from .base import NacModel
@@ -34,6 +34,7 @@ SPINE_ROLES = {
 ATTACHABLE_ROLES = {"leaf", "border", "border_spine", "border_gateway", "border_gateway_spine", "tor"}
 
 SERIAL_RE = r"^[a-zA-Z0-9_.:-]{1,16}$"
+LEAF_ROLE_RE = r"^[a-z][a-z0-9_-]{0,23}$"
 
 
 class Management(NacModel):
@@ -51,9 +52,16 @@ class Switch(NacModel):
     border_set: Optional[Literal[tuple(BORDER_SETS)]] = None
     # App-only: hardware model from the Nexus 9300 catalog (drives port numbering and port checks).
     model: Optional[str] = Field(None, max_length=40)
+    # App-only: leaf sub-role such as compute or storage (see Project.leaf_roles).
+    leaf_role: Optional[str] = Field(None, pattern=LEAF_ROLE_RE)
+
+    @field_validator("leaf_role", mode="before")
+    @classmethod
+    def _leaf_role(cls, v):
+        return v.strip().lower() if isinstance(v, str) and v.strip() else None
 
     def to_nac(self) -> dict:
         d = super().to_nac()
-        d.pop("border_set", None)
-        d.pop("model", None)
+        for k in ("border_set", "model", "leaf_role"):
+            d.pop(k, None)
         return d

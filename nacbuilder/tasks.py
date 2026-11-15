@@ -276,17 +276,19 @@ def add_vlan(
 
 
 # --- onboard a leaf pair -------------------------------------------------------------
-def next_leaf_names(p: Project, prefix: str | None = None) -> tuple[str, str]:
-    """The next two free leaf names, following the existing `<prefix>-leafN` pattern."""
+def next_leaf_names(p: Project, prefix: str | None = None, leaf_role: str | None = None) -> tuple[str, str]:
+    """The next two free leaf names: `<prefix>-leafN`, or `<prefix>-leaf-<role>N` for a leaf role."""
     leafs = [s.name for s in p.switches if s.role == "leaf"]
+    stem = f"leaf-{leaf_role}" if leaf_role else "leaf"
     if prefix is None:
-        m = next((re.match(r"(.*?)leaf\d+$", n) for n in sorted(leafs, key=_natural)), None)
+        m = next((re.match(r"(.*?)leaf(?:-[a-z0-9_]+?)?\d+$", n) for n in sorted(leafs, key=_natural)
+                  if re.match(r"(.*?)leaf(?:-[a-z0-9_]+?)?\d+$", n)), None)
         prefix = m[1] if m else f"{p.fabric.name}-"
-    used = {int(m[1]) for n in leafs if (m := re.fullmatch(rf"{re.escape(prefix)}leaf(\d+)", n))}
+    used = {int(m[1]) for n in leafs if (m := re.fullmatch(rf"{re.escape(prefix)}{re.escape(stem)}(\d+)", n))}
     n = max(used, default=0) + 1
     while n in used or n + 1 in used:
         n += 1
-    return f"{prefix}leaf{n}", f"{prefix}leaf{n + 1}"
+    return f"{prefix}{stem}{n}", f"{prefix}{stem}{n + 1}"
 
 
 def next_mgmt_ips(p: Project, count: int = 2) -> tuple[list[str], int | None, str | None]:
@@ -318,6 +320,7 @@ def onboard_leaf_pair(
     host_ports: HostPorts | None = None,
     groups: list[str] | None = None,
     model: str | None = None,
+    leaf_role: str | None = None,
 ) -> Project:
     """Two leafs as a vPC pair, with optional host vPC port-channels and attach group membership.
 
@@ -333,7 +336,8 @@ def onboard_leaf_pair(
     for name, serial, ip in zip(names, serials, mgmt_ips):
         mgmt = Management(management_ipv4_address=ip or None, subnet_mask_ipv4=mask, default_gateway_v4=gateway or None) \
             if (ip or mask or gateway) else None
-        q.switches.append(Switch(name=name, role="leaf", serial_number=serial or None, management=mgmt, model=model))
+        q.switches.append(Switch(name=name, role="leaf", serial_number=serial or None, management=mgmt, model=model,
+                                 leaf_role=leaf_role))
     spec = hw.get(model)
     if peerlink_ports is None and spec:
         peerlink_ports = spec.peer_link()

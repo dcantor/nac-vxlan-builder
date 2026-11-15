@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from nacbuilder import hardware as hw
 from nacbuilder.checks import check_project
-from nacbuilder.defaults import vrf_lite_uplink, expand_ports
+from nacbuilder.defaults import vrf_lite_uplink, expand_ports, model_for
 from nacbuilder.diffing import compare_projects
 from nacbuilder.models import ATTACHABLE_ROLES, Project
 from nacbuilder.tasks import (
@@ -205,7 +205,11 @@ if p.is_vxlan:
 # --- onboard a leaf pair ------------------------------------------------------------
 if p.is_vxlan:
     with tab_leafs:
-        n1, n2 = next_leaf_names(p)
+        onb_role = None
+        if p.leaf_roles:
+            onb_role = st.radio("Leaf role", p.leaf_roles, horizontal=True, key="onb_role",
+                                format_func=lambda r: p.leaf_role_label(r))
+        n1, n2 = next_leaf_names(p, leaf_role=onb_role)
         ips, mask, gw = next_mgmt_ips(p)
         ips = ips or ["", ""]
         with st.form("leafs"):
@@ -222,7 +226,7 @@ if p.is_vxlan:
             c1, c2 = st.columns(2)
             fabric_peering = c1.toggle("Fabric peering (no physical peer link)")
             leaf_models = hw.models_for("leaf")
-            want = p.role_models.get("leaf") or hw.suggested().get("leaf")
+            want = model_for(p.role_models, "leaf", onb_role) or hw.suggested().get("leaf")
             leaf_model = c1.selectbox("Model", leaf_models, index=leaf_models.index(want) if want in leaf_models else 0,
                                       key="onb_model")
             peerlink = c2.text_input("Peer-link ports (blank = the model's)", "",
@@ -233,8 +237,9 @@ if p.is_vxlan:
             mode = c2.selectbox("Mode", ["trunk", "access"])
             access_vlan = c3.number_input("Access VLAN", 1, 4094, 1)
             trunk = c4.text_input("Trunk VLANs", placeholder="2300-2399")
+            role_group = f"leaf-{onb_role}" if onb_role and f"leaf-{onb_role}" in p.attach_groups() else None
             join = st.multiselect("Add to attach groups", sorted(p.attach_groups()),
-                                  default=["all"] if "all" in p.attach_groups() else [])
+                                  default=[g for g in ("all", role_group) if g and g in p.attach_groups()])
             go = st.form_submit_button("Preview", type="primary")
         if go:
             try:
@@ -242,8 +247,8 @@ if p.is_vxlan:
                 links = [] if fabric_peering else (expand_ports(peerlink) if peerlink.strip() else None)
                 q = onboard_leaf_pair(p, (name1.strip(), name2.strip()), (serial1.strip(), serial2.strip()),
                                       (ip1.strip(), ip2.strip()), int(mgmt_mask), mgmt_gw.strip() or None, links,
-                                      fabric_peering, hp, join, model=leaf_model)
-                stage(f"Onboard {name1.strip()} + {name2.strip()}", q)
+                                      fabric_peering, hp, join, model=leaf_model, leaf_role=onb_role)
+                stage(f"Onboard {name1.strip()} + {name2.strip()}" + (f" ({p.leaf_role_label(onb_role).lower()})" if onb_role else ""), q)
             except (ValidationError, ValueError) as e:
                 fail(e)
 

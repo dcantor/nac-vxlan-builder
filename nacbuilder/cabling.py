@@ -66,7 +66,9 @@ def build_cabling(p: Project, uplinks: UplinkPlan | None = None) -> CablingPlan:
             return 0
         return 1 + (order.index(sets[n]) if sets[n] in order else len(order))
 
-    lower = sorted(lower, key=lambda n: (tier(n), _natural(n)))
+    lr_order = {r: i for i, r in enumerate(p.leaf_roles)}
+    lr_of = {s.name: s.leaf_role for s in p.switches}
+    lower = sorted(lower, key=lambda n: (tier(n), lr_order.get(lr_of.get(n), len(lr_order)), _natural(n)))
     used: dict[tuple[str, str], str] = {}
 
     def claim(switch: str, port: str, what: str) -> None:
