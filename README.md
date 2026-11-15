@@ -64,6 +64,16 @@ spreadsheet:
 - **Export:** an Excel workbook (Cabling, Ports, vPC pairs, VRF-lite and Notes sheets, with
   filters and frozen headers) or a zip of CSVs.
 
+### Header and switching fabrics
+
+A bar at the top of every page stays put when you scroll. It shows:
+- the fabric you're editing, its standard, and its switch, VRF and network counts
+- its error count, plus a Demo badge for the demo fabric
+
+Its dropdown lists the other fabrics you've worked on (every fabric with saved History), newest
+change first. Picking one saves the open fabric if it changed, then opens the other fabric's
+latest state. Undo/redo starts fresh for each fabric.
+
 ### Clear fabric
 
 At the bottom of the **Fabric** page, **Clear all settings…** deletes every value in the open
@@ -430,6 +440,7 @@ nacbuilder/paths.py     export/<fabric>/ folders
 nacbuilder/clone.py     clone a fabric under a new name
 nacbuilder/portmap.py   per-switch port states and the front-panel SVG
 nacbuilder/demo.py      demo mode fabric (build, delete)
+nacbuilder/workspace.py fabrics you can switch to (latest History snapshot of each)
 nacbuilder/standards.py design standards: built-ins + data/standards.yaml (Design standards page)
 tests/golden/       Cisco's example files, used as expected output
 ```

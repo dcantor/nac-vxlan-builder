@@ -9,7 +9,7 @@ from nacbuilder.checks import check_project
 from nacbuilder.demo import is_demo
 from nacbuilder.models import Project
 from nacbuilder.sample import standard_example
-from nacbuilder.ui import key, project, redo, set_project, show_flash, undo, undo_stack
+from nacbuilder.ui import header, key, project, redo, set_project, show_flash, undo, undo_stack
 
 st.set_page_config(page_title="NaC VXLAN Builder", page_icon=":material/lan:", layout="wide")
 
@@ -104,4 +104,5 @@ with st.sidebar:
             st.rerun()
 
 show_flash()
+header(p)
 nav.run()

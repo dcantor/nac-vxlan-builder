@@ -129,3 +129,68 @@ def section_issues(section: str) -> None:
     issues: list[Issue] = [i for i in check_project(project()) if i.section == section]
     for i in issues:
         (st.error if i.level == "error" else st.warning)(i.message, icon="⛔" if i.level == "error" else "⚠️")
+
+
+def switch_fabric(name: str) -> None:
+    """Open another fabric's latest saved state (saving the open one first)."""
+    from . import workspace
+
+    cur = project()
+    if name == cur.fabric.name:
+        return
+    workspace.save_current(cur)
+    target = workspace.latest(name)
+    if target is None:
+        raise ValueError(f"no saved state for {name}")
+    st.session_state.pop("undo", None)  # undo/redo is per fabric
+    st.session_state.pop("task_preview", None)
+    st.session_state.pop("pp_selected", None)
+    set_project(target, record=False)
+    st.session_state.flash = f"Switched to {name}"
+
+
+def header(p: Project) -> None:
+    """Frozen bar at the top of every page: which fabric is open, and a switcher."""
+    from . import standards as std
+    from . import workspace
+    from .checks import check_project
+    from .demo import is_demo
+
+    dark = getattr(getattr(st.context, "theme", None), "type", None) == "dark"
+    bg, border = ("#0e1117", "#31333f") if dark else ("#ffffff", "#e6e8eb")
+    st.markdown(f"""<style>
+    [data-testid="stHeader"] {{ background: {bg}; }}  /* so content doesn't show above the bar */
+    /* Streamlit wraps the container in a stLayoutWrapper; that wrapper is what can stick */
+    [data-testid="stLayoutWrapper"]:has(> .st-key-nacb_header) {{
+        position: sticky; top: 3.75rem; z-index: 990; background: {bg};
+        border-bottom: 1px solid {border}; padding: 0.4rem 0 0.5rem 0; margin-top: -1rem;
+    }}
+    </style>""", unsafe_allow_html=True)
+    with st.container(key="nacb_header"):
+        c1, c2 = st.columns([3, 2], vertical_alignment="center")
+        issues = check_project(p)
+        errs = sum(i.level == "error" for i in issues)
+        counts = f"{len(p.switches)} switches" + (f" · {len(p.vrfs)} VRFs · {len(p.networks)} networks" if p.is_vxlan else "")
+        demo = " · :orange-badge[:material/slideshow: Demo]" if is_demo(p) else ""
+        c1.markdown(f":material/edit_note: Editing fabric **`{p.fabric.name}`**{demo}  \n"
+                    f":small[{std.get(p.standard).label} · {counts} · {'⛔' if errs else '✅'} {errs} errors]")
+        entries = {e.name: e for e in workspace.fabrics()}
+        names = [p.fabric.name, *[n for n in entries if n != p.fabric.name]]
+
+        def label(n):
+            if n == p.fabric.name:
+                return f"{n} (open)"
+            return workspace.describe(entries[n])
+
+        def on_pick():
+            pick = st.session_state.get(widget_key)
+            if pick and pick != p.fabric.name:
+                try:
+                    switch_fabric(pick)
+                except (ValueError, OSError) as e:
+                    st.session_state.flash = f"Couldn't switch: {e}"
+
+        widget_key = key(f"fabric_switch_{p.fabric.name}")
+        c2.selectbox("Switch fabric", names, index=0, format_func=label, key=widget_key, on_change=on_pick,
+                     label_visibility="collapsed", disabled=len(names) < 2,
+                     help="Fabrics you've worked on (from History). Switching saves the open fabric first.")
