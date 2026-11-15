@@ -91,4 +91,4 @@ def test_provision_tab_shows_map_and_preview_highlights_new_ports():
     next(b for b in tab.button if b.label == "Preview").click().run()
     assert not at.exception
     assert any(m.value == "**Port map after this change**" for m in at.markdown)
-    assert any("blue outline = added by this preview" in c.value for c in at.caption)
+    assert any("blue outline = added or changed by this preview" in c.value for c in at.caption)

@@ -123,6 +123,21 @@ gray ones aren't in the YAML. Port-channel members take their port-channel's sta
 peer-link ports count as enabled. Hover a port to see its interface, VLANs and description. When
 you preview a change, a second map shows the result with the new ports outlined in blue.
 
+**Click a port** on the map to load its settings in a panel below it. The port you clicked gets an
+orange outline, and the panel says what the port is: not in the YAML, its own interface, a
+port-channel member, or vPC peer link. You can set:
+- mode (access or trunk)
+- enabled (no shutdown)
+- edge port (portfast and BPDU guard)
+- description
+- access VLAN, or tagged and native VLANs (only VLANs that are networks in the data model)
+- speed and MTU
+
+**Preview changes** shows the usual Day-2 preview, with the result on a port map; **Remove from
+the YAML** takes the port out. A port-channel member edits its port-channel, on both peers for a
+vPC. Peer-link ports and routed ports (such as VRF-lite uplinks) are read-only here; change them
+on the vPC pairs or Interfaces page.
+
 ### History and undo
 
 - **Snapshots:** every saved change is stored as a JSON snapshot in

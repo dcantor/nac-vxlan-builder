@@ -72,9 +72,12 @@ def switch_ports(p: Project, switch: str) -> list[Port]:
     return [ports[n] for n in sorted(ports)]
 
 
-def render_svg(p: Project, switches: list[str], highlight: set[tuple[str, int]] = frozenset()) -> tuple[str, int]:
+def render_svg(p: Project, switches: list[str], highlight: set[tuple[str, int]] = frozenset(),
+               selected: tuple[str, int] | None = None, clickable: bool = False) -> tuple[str, int]:
     """SVG of each switch's front panel (odd ports on top, even below, like a Nexus 9300).
-    `highlight` outlines (switch, port number) pairs, e.g. the ports a preview adds. Returns (svg, height)."""
+    `highlight` outlines (switch, port number) pairs in blue, e.g. the ports a preview adds; `selected`
+    outlines one port in orange. `clickable` tags each port with data-switch/data-port for the
+    click-to-select component. Returns (svg, height)."""
     pw, ph, gap, left, top = 18, 16, 3, 10, 10
     rows, width, y = [], 0, top
     for sw in switches:
@@ -105,10 +108,12 @@ def render_svg(p: Project, switches: list[str], highlight: set[tuple[str, int]] 
                 hl = (sw, pt.number) in highlight
                 tip = escape(f"{pt.name} · " + ("not in the YAML" if pt.state == UNUSED else pt.state)
                              + "".join(f"\n{d}" for d in pt.details) + ("\n(new in this preview)" if hl else ""))
-                stroke = ' stroke="#1f6feb" stroke-width="3"' if hl else ' stroke="#00000033" stroke-width="1"'
+                stroke = (' stroke="#f08c00" stroke-width="3"' if selected == (sw, pt.number)
+                          else ' stroke="#1f6feb" stroke-width="3"' if hl else ' stroke="#00000033" stroke-width="1"')
+                data = f' data-switch="{escape(sw)}" data-port="{pt.number}"' if clickable else ""
                 label_y = py - 2 if r == 0 else py + ph + 9  # numbers above the top row, below the bottom row
                 rows.append(f'<g><title>{tip}</title><rect x="{cx}" y="{py}" width="{pw}" height="{ph}" rx="2" '
-                            f'fill="{COLORS[pt.state]}"{stroke}/></g>')
+                            f'fill="{COLORS[pt.state]}"{stroke}{data}/></g>')
                 rows.append(f'<text x="{cx + pw / 2}" y="{label_y}" font-size="8" text-anchor="middle" '
                             f'fill="currentColor">{pt.number}</text>')
         y += 2 * ph + 3 * gap + 36
@@ -116,3 +121,17 @@ def render_svg(p: Project, switches: list[str], highlight: set[tuple[str, int]] 
     svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
            f'viewBox="0 0 {width} {height}" font-family="sans-serif">{"".join(rows)}</svg>')
     return svg, height
+
+
+_COMPONENT = None
+
+
+def port_picker(svg: str, height: int, key: str):
+    """Show a clickable port map; returns {"switch", "port", "click"} for the last click, or None."""
+    global _COMPONENT
+    import streamlit.components.v1 as components
+    from pathlib import Path
+
+    if _COMPONENT is None:
+        _COMPONENT = components.declare_component("nacb_portmap", path=str(Path(__file__).parent / "components" / "portmap"))
+    return _COMPONENT(svg=svg, height=height, key=key, default=None)

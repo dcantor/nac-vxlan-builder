@@ -631,3 +631,157 @@ def clear_summary(p: Project) -> list[str]:
     if not p.preserved.is_empty():
         out.append("settings kept from the imported YAML")
     return out
+
+
+# --- one port, picked on the port map ---------------------------------------------------------
+@dataclass
+class PortConfig:
+    """What the YAML says about one physical port.
+
+    kind: "unused" (not in the YAML), "single" (its own interface), "member" (of a port-channel,
+    whose settings it uses) or "peer_link" (a vPC peer-link member, set on the vPC pairs page).
+    """
+
+    switch: str
+    port: str
+    kind: str
+    interface: Interface | None = None  # the port's interface, or the port-channel it's in
+    peer: str | None = None  # vPC peer for a peer-link port, or for a vPC port-channel member
+
+    @property
+    def editable(self) -> bool:
+        return self.kind == "unused" or (self.interface is not None and self.interface.mode in ("access", "trunk"))
+
+
+@dataclass
+class PortSettings:
+    mode: str = "access"  # access | trunk
+    enabled: bool = True
+    description: str | None = None
+    access_vlan: int | None = None
+    allowed_vlans: list[int] = field(default_factory=list)
+    native_vlan: int | None = None
+    speed: str | None = None  # single ports only; port-channel members follow the channel
+    mtu: str | None = None  # None, "jumbo" or "default"
+    edge: bool = True  # spanning-tree portfast + BPDU guard
+
+
+def _port_name(n_or_name) -> str:
+    return f"Ethernet1/{n_or_name}" if isinstance(n_or_name, int) else str(n_or_name)
+
+
+def port_config(p: Project, switch: str, port) -> PortConfig:
+    from .portmap import port_number
+
+    name = _port_name(port)
+    n = port_number(name)
+    for i in p.interfaces_of(switch):
+        if not i.is_port_channel and port_number(i.name) == n and i.name.lower() == name.lower():
+            return PortConfig(switch, name, "single", i)
+    for i in p.interfaces_of(switch):
+        if i.is_port_channel and any(port_number(m) == n for m in i.members):
+            pair = p.vpc_peer_of(switch) if i.vpc_id else None
+            peer = (pair.peer2 if pair.peer1 == switch else pair.peer1) if pair else None
+            return PortConfig(switch, name, "member", i, peer)
+    for v in p.vpc_peers:
+        side = v.peer1_peerlink_interfaces if v.peer1 == switch else v.peer2_peerlink_interfaces if v.peer2 == switch else []
+        if any(port_number(m) == n for m in side):
+            return PortConfig(switch, name, "peer_link", None, v.peer2 if v.peer1 == switch else v.peer1)
+    for i in p.interfaces_of(switch):  # breakout or sub-interface on this physical port
+        if port_number(i.name) == n:
+            return PortConfig(switch, name, "single", i)
+    return PortConfig(switch, name, "unused")
+
+
+def settings_of(cfg: PortConfig) -> PortSettings:
+    i = cfg.interface
+    if i is None:
+        return PortSettings()
+    return PortSettings(
+        mode=i.mode if i.mode in ("access", "trunk") else "access",
+        enabled=i.enabled is not False,
+        description=i.description,
+        access_vlan=i.access_vlan,
+        allowed_vlans=sorted(expand_vlans(i.trunk_allowed_vlans)) if i.trunk_allowed_vlans else [],
+        native_vlan=i.native_vlan,
+        speed=i.speed,
+        mtu=i.mtu if isinstance(i.mtu, str) else None,
+        edge=bool(i.spanning_tree_portfast or i.enable_bpdu_guard),
+    )
+
+
+def set_port(p: Project, switch: str, port, s: PortSettings) -> Project:
+    """Apply settings to one port. A port-channel member changes its port-channel (on both vPC peers)."""
+    q = _copy(p)
+    _known_switches(q, [switch])
+    cfg = port_config(q, switch, port)
+    if cfg.kind == "peer_link":
+        raise ValueError(f"{cfg.port} is in the vPC peer link to {cfg.peer}; change it on the vPC pairs page")
+    if not cfg.editable:
+        raise ValueError(f"{cfg.port} is a {cfg.interface.mode} interface; change it on the Interfaces page")
+    if s.mode not in ("access", "trunk"):
+        raise ValueError("mode must be access or trunk")
+    known = network_vlans(q)
+    if s.mode == "access":
+        if s.access_vlan is None:
+            raise ValueError("pick the access VLAN")
+        vlans = [s.access_vlan]
+    else:
+        vlans = sorted(set(s.allowed_vlans) | ({s.native_vlan} if s.native_vlan else set()))
+        if not vlans:
+            raise ValueError("pick at least one VLAN for the trunk")
+    unknown = [v for v in vlans if v not in known]
+    if unknown:
+        raise ValueError(f"VLAN(s) {', '.join(map(str, unknown))} aren't networks in the data model")
+    values = dict(
+        mode=s.mode, enabled=None if s.enabled else False, description=(s.description or "").strip() or None,
+        access_vlan=s.access_vlan if s.mode == "access" else None,
+        trunk_allowed_vlans=compress_vlans(vlans) if s.mode == "trunk" else None,
+        native_vlan=s.native_vlan if s.mode == "trunk" else None,
+        mtu=s.mtu or None,
+        spanning_tree_portfast=True if s.edge else None, enable_bpdu_guard=True if s.edge else None,
+    )
+    if cfg.kind == "member":
+        pc = cfg.interface
+        targets = {(switch, pc.name)} | ({(cfg.peer, pc.name)} if cfg.peer else set())
+        q.interfaces = [Interface.model_validate({**i.model_dump(), **values}) if (i.switch, i.name) in targets else i
+                        for i in q.interfaces]
+    else:
+        values["speed"] = s.speed or None
+        new = Interface(switch=switch, name=cfg.interface.name if cfg.interface else cfg.port, **values)
+        if cfg.kind == "single":
+            q.interfaces = [new if is_same(i, cfg.interface) else i for i in q.interfaces]
+        else:
+            q.interfaces.append(new)
+    return Project.model_validate(q.model_dump())
+
+
+def is_same(a: Interface, b: Interface | None) -> bool:
+    return b is not None and (a.switch, a.name) == (b.switch, b.name)
+
+
+def clear_port(p: Project, switch: str, port) -> Project:
+    """Take a port out of the YAML: drop its interface, or remove it from its port-channel (on both
+    peers for a vPC port-channel; a port-channel left with no members goes too)."""
+    q = _copy(p)
+    cfg = port_config(q, switch, port)
+    if cfg.kind == "unused":
+        raise ValueError(f"{cfg.port} isn't in the YAML")
+    if cfg.kind == "peer_link":
+        raise ValueError(f"{cfg.port} is in the vPC peer link to {cfg.peer}; change it on the vPC pairs page")
+    from .portmap import port_number
+
+    # a vPC port-channel loses the port on both peers, so the pair stays matched
+    targets = {(switch, cfg.interface.name)} | ({(cfg.peer, cfg.interface.name)} if cfg.kind == "member" and cfg.peer else set())
+    out = []
+    for i in q.interfaces:
+        if (i.switch, i.name) in targets:
+            if cfg.kind == "single":
+                continue
+            left = [m for m in i.members if port_number(m) != port_number(cfg.port)]
+            if not left:
+                continue
+            i = i.model_copy(update={"members": left})
+        out.append(i)
+    q.interfaces = out
+    return Project.model_validate(q.model_dump())

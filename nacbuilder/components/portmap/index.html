@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  body { margin: 0; background: #f6f7f9; color: #31333f; border-radius: 8px; overflow-x: auto;
+         font-family: sans-serif; }
+  [data-port] { cursor: pointer; }
+  [data-port]:hover { filter: brightness(1.15); stroke: #1f6feb; stroke-width: 2; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<script>
+// Minimal Streamlit component protocol (what streamlit-component-lib does), so no build step is needed.
+function send(type, data) {
+  window.parent.postMessage(Object.assign({isStreamlitMessage: true, type: type}, data), "*");
+}
+let clicks = 0;
+window.addEventListener("message", (event) => {
+  if (!event.data || event.data.type !== "streamlit:render") return;
+  const args = event.data.args || {};
+  const map = document.getElementById("map");
+  map.innerHTML = args.svg || "";
+  map.querySelectorAll("[data-port]").forEach((el) => {
+    el.addEventListener("click", () => {
+      clicks += 1;
+      send("streamlit:setComponentValue", {
+        value: {switch: el.dataset.switch, port: Number(el.dataset.port), click: Date.now() + "-" + clicks},
+        dataType: "json",
+      });
+    });
+  });
+  send("streamlit:setFrameHeight", {height: (args.height || map.scrollHeight) + 8});
+});
+send("streamlit:componentReady", {apiVersion: 1});
+</script>
+</body>
+</html>

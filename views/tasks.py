@@ -11,7 +11,8 @@ from nacbuilder.checks import check_project
 from nacbuilder.defaults import expand_ports, model_for, model_key, vrf_lite_uplink
 from nacbuilder.diffing import compare_projects
 from nacbuilder.models import ATTACHABLE_ROLES, Project
-from nacbuilder.portmap import render_svg, switch_ports
+from nacbuilder.models.interfaces import SPEEDS
+from nacbuilder.portmap import port_picker, render_svg, switch_ports
 from nacbuilder.tasks import (
     HostPorts,
     PortSpec,
@@ -29,6 +30,11 @@ from nacbuilder.tasks import (
     next_leaf_names,
     next_mgmt_ips,
     onboard_leaf_pair,
+    PortSettings,
+    clear_port,
+    port_config,
+    set_port,
+    settings_of,
 )
 from nacbuilder.ui import LOCKED, fmt_errors, key, project, records, set_project, show_errors
 
@@ -63,7 +69,105 @@ def show_port_map(proj, switches, highlight=frozenset()):
         '<body style="margin:0;background:#f6f7f9;color:#31333f;border-radius:8px;overflow-x:auto">'
         f'{svg}</body>', height=height + 8, scrolling=False)
     st.caption(":green[■] enabled in the YAML · :red[■] disabled (`enabled: false`) · :gray[■] not in the YAML"
-               + (" · blue outline = added by this preview" if highlight else "") + ". Hover a port for details.")
+               + (" · blue outline = added or changed by this preview" if highlight else "") + ". Hover a port for details.")
+
+
+KIND_TEXT = {
+    "unused": "Not in the YAML yet.",
+    "single": "Configured as its own interface.",
+    "member": "A member of {pc}{vpc}; these settings are the port-channel's{both}.",
+    "peer_link": "Part of the vPC peer link to {peer}. Change it on the vPC pairs page.",
+}
+
+
+def port_editor(proj, shown):
+    """Clickable port map plus a settings panel for the port you click."""
+    if not shown:
+        return
+    sel = st.session_state.get("pp_selected")
+    if sel and sel[0] not in shown:
+        sel = None
+    svg, height = render_svg(proj, shown, selected=sel, clickable=True)
+    click = port_picker(svg, height, key=key("pp_click"))
+    if click and click.get("click") != st.session_state.get("pp_last_click"):
+        st.session_state.pp_last_click = click.get("click")
+        st.session_state.pp_selected = (click["switch"], int(click["port"]))
+        st.rerun()
+    st.caption(":green[■] enabled in the YAML · :red[■] disabled (`enabled: false`) · :gray[■] not in the YAML · "
+               ":orange[□] selected. **Click a port** to see and change its settings; hover for details.")
+    if not sel:
+        return
+
+    sw, n = sel
+    cfg = port_config(proj, sw, n)
+    cur = settings_of(cfg)
+    pc = cfg.interface
+    st.markdown(f"#### {cfg.port} on {sw}")
+    st.caption(KIND_TEXT[cfg.kind].format(pc=pc.name if pc else "", peer=cfg.peer,
+                                          vpc=f" (vPC {pc.vpc_id})" if pc and pc.vpc_id else "",
+                                          both=f", on both {sw} and {cfg.peer}" if cfg.kind == "member" and cfg.peer else ""))
+    if cfg.kind == "peer_link":
+        return
+    if not cfg.editable:
+        st.info(f"{pc.name} is a {pc.mode} interface. Change it on the Interfaces page.", icon=":material/info:")
+        return
+    vlans = network_vlans(proj)
+    if not vlans:
+        st.info("There are no VLANs (networks) in the data model yet, so the port can't be set up here.",
+                icon=":material/info:")
+        return
+    vlan_list = sorted(vlans)
+    vrf_of = {x.vlan_id: x.vrf_name for x in proj.networks}
+
+    def vlan_label(v):
+        return f"{v} · {vlans[v]}" + (f" ({vrf_of[v]})" if vrf_of.get(v) else "")
+
+    tag = f"{sw}_{n}_{st.session_state.get('editor_ver', 0)}"
+    mode = st.radio("Mode", ["access", "trunk"], index=["access", "trunk"].index(cur.mode), horizontal=True,
+                    format_func=str.capitalize, key=f"pe_mode_{tag}")
+    with st.form(f"pe_{tag}"):
+        c1, c2 = st.columns(2)
+        enabled = c1.toggle("Enabled (no shutdown)", cur.enabled, help="Off writes enabled: false (red on the map).")
+        edge = c2.toggle("Edge port", cur.edge, help="spanning-tree portfast and BPDU guard")
+        desc = st.text_input("Description", cur.description or "", placeholder="esx-01")
+        access_vlan, allowed, native = None, [], None
+        if mode == "access":
+            access_vlan = st.selectbox("Access VLAN", vlan_list, format_func=vlan_label,
+                                       index=vlan_list.index(cur.access_vlan) if cur.access_vlan in vlan_list else 0)
+        else:
+            c1, c2 = st.columns([2, 1])
+            allowed = c1.multiselect("Tagged (allowed) VLANs", vlan_list, format_func=vlan_label,
+                                     default=[v for v in cur.allowed_vlans if v in vlan_list and v != cur.native_vlan])
+            natives = [None, *vlan_list]
+            native = c2.selectbox("Native VLAN", natives, format_func=lambda v: "(none)" if v is None else vlan_label(v),
+                                  index=natives.index(cur.native_vlan) if cur.native_vlan in natives else 0)
+        c1, c2 = st.columns(2)
+        speed = cur.speed
+        if cfg.kind != "member":
+            speeds = ["(not set)", *SPEEDS]
+            speed = c1.selectbox("Speed", speeds, index=speeds.index(cur.speed) if cur.speed in speeds else 0)
+        mtus = ["(not set)", "jumbo", "default"]
+        mtu = c2.selectbox("MTU", mtus, index=mtus.index(cur.mtu) if cur.mtu in mtus else 0)
+        go = st.form_submit_button("Preview changes", type="primary")
+    if go:
+        new = PortSettings(mode=mode, enabled=enabled, description=desc, access_vlan=access_vlan,
+                           allowed_vlans=allowed, native_vlan=native, edge=edge,
+                           speed=None if speed in (None, "(not set)") else speed,
+                           mtu=None if mtu == "(not set)" else mtu)
+        try:
+            what = pc.name if cfg.kind == "member" else cfg.port
+            stage(f"Port {what} on {sw}" + (f" and {cfg.peer}" if cfg.kind == "member" and cfg.peer else "")
+                  + (": new " if cfg.kind == "unused" else ": change ") + f"{mode}"
+                  + ("" if enabled else ", disabled"), set_port(proj, sw, n, new))
+        except (ValidationError, ValueError) as e:
+            fail(e)
+    if cfg.kind != "unused" and st.button("Remove from the YAML", icon=":material/remove_circle:", key=f"pe_rm_{tag}"):
+        try:
+            where = f"{pc.name}" if cfg.kind == "member" else cfg.port
+            stage(f"Port {cfg.port} on {sw}: remove" + (f" from {where}" if cfg.kind == "member" else ""),
+                  clear_port(proj, sw, n))
+        except ValueError as e:
+            fail(e)
 
 
 if not p.is_vxlan:
@@ -294,7 +398,7 @@ if p.is_vxlan:
         pairs = [[v.peer1, v.peer2] for v in p.vpc_peers if v.peer1 in map_opts and v.peer2 in map_opts]
         default_pair = next((pr for pr in pairs if roles[pr[0]] == "leaf"), pairs[0] if pairs else map_opts[:2])
         shown = st.multiselect("Show switches", map_opts, default=default_pair, key=key("pp_map"))
-        show_port_map(p, shown)
+        port_editor(p, shown)
 
 # --- onboard a leaf pair ------------------------------------------------------------
 if p.is_vxlan:
@@ -397,7 +501,7 @@ if pv:
         st.warning("New warnings:\n\n" + "\n".join(f"- **{i.section}**: {i.message}" for i in new_warnings))
     if not new_issues:
         st.success("No new errors or warnings.", icon="✅")
-    if pv["label"].startswith("Provision "):
+    if pv["label"].startswith(("Provision ", "Port ")):
         before_ports = {(sw.name, pt.number, pt.state, tuple(pt.details)) for sw in p.switches
                         for pt in switch_ports(p, sw.name)}
         touched = {(sw.name, pt.number) for sw in q.switches for pt in switch_ports(q, sw.name)
