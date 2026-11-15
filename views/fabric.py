@@ -2,7 +2,8 @@ import streamlit as st
 from pydantic import ValidationError
 
 from nacbuilder import standards as std
-from nacbuilder.models import Fabric, GlobalIbgp, ManagementServer, SyslogServer
+from nacbuilder import workspace
+from nacbuilder.models import Fabric, GlobalIbgp, ManagementServer, Project, SyslogServer
 from nacbuilder.tasks import clear_fabric, clear_summary
 from nacbuilder.ui import LOCKED, build_rows, fmt_errors, frame, key, project, records, section_issues, set_project, show_errors
 
@@ -192,3 +193,50 @@ with st.popover("Clear all settings…", icon=":material/delete_forever:", disab
                  disabled=typed.strip() != p.fabric.name, key="clear_go"):
         set_project(clear_fabric(p), f"Cleared all settings for {p.fabric.name}")
         st.rerun()
+
+st.subheader("Fabric instances", divider="gray")
+entries = {e.name: e for e in workspace.fabrics()}
+open_blank = p in (Project(), std.new_project(p.standard))
+names = list(entries)
+if p.fabric.name not in entries and not open_blank:
+    names.insert(0, p.fabric.name)  # open fabric with no saved History yet
+with st.container(border=True):
+    if not names:
+        st.caption("No fabrics yet. Every fabric you build or import is listed here once it's saved to History.")
+    else:
+        st.caption("Every fabric you've worked on (saved in History). Tick the ones to delete: their History "
+                   "snapshots and `export/<fabric>/` folder go. Files written to a NaC repo aren't touched.")
+        picked = []
+        for n in names:
+            label = workspace.describe(entries[n]) if n in entries else f"{n} · not saved yet"
+            if n == p.fabric.name:
+                label += " · **open now**"
+            if st.checkbox(label, key=key(f"fab_del_{n}")):
+                picked.append(n)
+        pending = st.session_state.get("fab_delete")
+        if st.button("Delete fabric(s)", icon=":material/delete:", disabled=not picked or bool(pending),
+                     key="fab_delete_btn"):
+            st.session_state.fab_delete = picked
+            st.rerun()
+        if pending:
+            st.error(f"Delete {len(pending)} fabric(s): {', '.join(f'`{n}`' for n in pending)}? This removes their "
+                     "History snapshots and export folders and can't be undone."
+                     + (" The open fabric is one of them; a new, empty fabric opens instead." if p.fabric.name in pending else ""),
+                     icon=":material/warning:")
+            typed = st.text_input('Type "Yes" to confirm', key="fab_delete_confirm")
+            c1, c2, _ = st.columns([1, 1, 3])
+            if c1.button("Delete", type="primary", disabled=typed.strip() != "Yes", key="fab_delete_go",
+                         use_container_width=True):
+                gone = {n: workspace.delete_fabric(n) for n in pending}
+                st.session_state.pop("fab_delete", None)
+                st.session_state.pop("fab_delete_confirm", None)
+                if p.fabric.name in pending:
+                    st.session_state.pop("undo", None)
+                    set_project(std.new_project(p.standard), record=False)
+                st.session_state.flash = f"Deleted {len(gone)} fabric(s): {', '.join(sorted(gone))}"
+                st.session_state.editor_ver = st.session_state.get("editor_ver", 0) + 1  # clear the checkboxes
+                st.rerun()
+            if c2.button("Cancel", key="fab_delete_cancel", use_container_width=True):
+                st.session_state.pop("fab_delete", None)
+                st.session_state.pop("fab_delete_confirm", None)
+                st.rerun()

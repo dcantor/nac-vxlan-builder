@@ -64,6 +64,16 @@ spreadsheet:
 - **Export:** an Excel workbook (Cabling, Ports, vPC pairs, VRF-lite and Notes sheets, with
   filters and frozen headers) or a zip of CSVs.
 
+### Fabric instances
+
+At the bottom of the **Fabric** page, a box lists every fabric you've worked on (each fabric with
+saved History), with a checkbox next to each. Tick the ones to remove and click **Delete
+fabric(s)**. You then have to type `Yes` before **Delete** is enabled; **Cancel** keeps everything.
+
+Deleting a fabric removes its History snapshots and its `export/<fabric>/` folder. Files you
+wrote to a NaC repo aren't touched. This can't be undone. If the open fabric is deleted, a new,
+empty fabric opens in its place.
+
 ### Header and switching fabrics
 
 A bar at the top of every page stays put when you scroll. It shows:

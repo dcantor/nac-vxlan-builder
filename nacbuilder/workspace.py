@@ -53,3 +53,25 @@ def describe(e: FabricEntry) -> str:
     if c.get("vrfs"):
         bits.append(f"{c['vrfs']} VRFs")
     return f"{e.name} · {', '.join(bits)} · changed {e.updated:%b %d %H:%M}"
+
+
+def delete_fabric(name: str, history: History | None = None) -> list[str]:
+    """Delete a fabric: all its History snapshots and its export/<name>/ folder. Returns what went."""
+    import shutil
+
+    from .history import _safe
+    from .paths import export_root
+
+    h = history or History()
+    removed = []
+    n = h.clear(name)
+    folder = h.root / _safe(name)
+    if folder.is_dir() and not any(folder.iterdir()):
+        folder.rmdir()
+    if n:
+        removed.append(f"{n} history snapshot(s)")
+    out = export_root() / name
+    if out.is_dir() and out.resolve().parent == export_root().resolve():  # never outside export/
+        shutil.rmtree(out)
+        removed.append(f"export/{name}/")
+    return removed
