@@ -53,7 +53,7 @@ def test_plan_contents(fabric):
     leaf1 = [r for r in plan.ports if r["switch"] == "dc1-leaf1"]
     assert [r["port"] for r in leaf1] == ["Ethernet1/1", "Ethernet1/49", "Ethernet1/50", "Ethernet1/51", "Ethernet1/52",
                                           "Ethernet1/53", "Ethernet1/54"]
-    assert leaf1[0]["use"] == "vPC 10 member" and leaf1[0]["vlans"] == "2300-2310"
+    assert leaf1[0]["use"] == "vPC 10 member" and leaf1[0]["vlans"] == "2300"
     assert plan.vrf_lite[0]["local_ip"] == "10.254.0.1/30"
 
 

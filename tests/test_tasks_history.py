@@ -156,7 +156,7 @@ def test_tasks_page_preview_and_apply():
     at.session_state["project"] = standard_example()
     at.run()
     assert not at.exception and at.title
-    decom = at.tabs[5]
+    decom = at.tabs[6]
     decom.multiselect[0].set_value(["dc1-leaf3"])
     next(b for b in decom.button if b.label == "Preview").click().run()
     assert not at.exception
@@ -219,7 +219,7 @@ def test_add_vrf_new_group_and_existing_group():
 
 
 def test_add_vlan_defaults_and_trunks():
-    p = full_fabric()  # VRF01 with NET01 on group "all"; port-channel10 trunk 2300-2310 on leaf1/leaf2
+    p = full_fabric()  # VRF01 with NET01 on group "all"; port-channel10 trunk 2300 on leaf1/leaf2
     q = add_vlan(p, "VRF01", [NetworkSpec("NET02", "172.16.20.1/24"), NetworkSpec("NET03", vlan_id=2350)],
                  trunks=TrunkSpec(["dc1-leaf1"]))
     assert issues(q) == []
@@ -228,7 +228,7 @@ def test_add_vlan_defaults_and_trunks():
     assert new["NET03"].vlan_id == 2350
     trunks = {(i.switch, i.name): i.trunk_allowed_vlans for i in q.interfaces if i.mode == "trunk"}
     # leaf2 is leaf1's vPC peer, so it gets the VLAN too
-    assert trunks == {("dc1-leaf1", "port-channel10"): "2300-2310,2350", ("dc1-leaf2", "port-channel10"): "2300-2310,2350"}
+    assert trunks == {("dc1-leaf1", "port-channel10"): "2300-2301,2350", ("dc1-leaf2", "port-channel10"): "2300-2301,2350"}
     with pytest.raises(ValueError, match="already in use"):
         add_vlan(p, "VRF01", [NetworkSpec("X", vlan_id=2300)])
     with pytest.raises(ValueError, match="doesn't exist"):
@@ -267,9 +267,9 @@ def test_decommission_vlans_strips_trunks():
     q = decommission(p, networks=["NET03"])
     assert issues(q) == []
     assert not any(n.name == "NET03" for n in q.networks)
-    assert {i.trunk_allowed_vlans for i in q.interfaces if i.mode == "trunk"} == {"2300-2310"}
+    assert {i.trunk_allowed_vlans for i in q.interfaces if i.mode == "trunk"} == {"2300"}
     r = decommission(p, networks=["NET03"], strip_trunks=False)
-    assert {i.trunk_allowed_vlans for i in r.interfaces if i.mode == "trunk"} == {"2300-2310,2350"}
+    assert {i.trunk_allowed_vlans for i in r.interfaces if i.mode == "trunk"} == {"2300,2350"}
     with pytest.raises(ValueError, match="unknown network"):
         decommission(p, networks=["nope"])
 

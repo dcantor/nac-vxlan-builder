@@ -22,7 +22,7 @@ def full_fabric():
     """Standard example + a vPC host port-channel + a VRF-lite handoff on the external borders."""
     p = standard_example()
     leaf_pair = next(v for v in p.vpc_peers if v.peer1 == "dc1-leaf1")
-    p.interfaces += vpc_port_channel(leaf_pair, 10, 10, ["Ethernet1/1"], ["Ethernet1/1"], "trunk", trunk_vlans="2300-2310")
+    p.interfaces += vpc_port_channel(leaf_pair, 10, 10, ["Ethernet1/1"], ["Ethernet1/1"], "trunk", trunk_vlans="2300")
     p.interfaces.append(Interface(switch="dc1-leaf3", name="Ethernet1/5", mode="access", access_vlan=2300))
     plan = build_vrf_lite(p, "VRF01", {"dc1-border-external1": ["Ethernet1/49"], "dc1-border-external2": ["Ethernet1/49"]},
                           2000, "10.254.0.0/24", 30, 65500)
@@ -53,7 +53,7 @@ def test_generated_yaml(fabric):
     assert topo["vpc_peers"][0]["peer1_peerlink_interfaces"] == [{"name": "Ethernet1/53"}, {"name": "Ethernet1/54"}]
     leaf1 = next(s for s in topo["switches"] if s["name"] == "dc1-leaf1")
     assert leaf1["interfaces"] == [{
-        "name": "port-channel10", "mode": "trunk", "trunk_allowed_vlans": [{"from": 2300, "to": 2310}],
+        "name": "port-channel10", "mode": "trunk", "trunk_allowed_vlans": [{"from": 2300}],
         "members": ["Ethernet1/1"], "vpc_id": 10,
     }]
     ext1 = next(s for s in topo["switches"] if s["name"] == "dc1-border-external1")

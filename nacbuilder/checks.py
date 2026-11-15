@@ -9,6 +9,7 @@ from typing import Literal
 from . import hardware as hw
 from . import standards as std
 from .models import ATTACHABLE_ROLES, SPINE_ROLES, Project
+from .models.interfaces import compress_vlans, expand_vlans
 
 
 @dataclass(frozen=True)
@@ -325,6 +326,23 @@ def check_project(p: Project) -> list[Issue]:
             parent = i.name.split(".")[0].lower()
             if not any(j.switch == i.switch and j.name.lower() == parent and j.mode in ("routed", "routed_po") for j in p.interfaces):
                 warn("Interfaces", f"{i.switch} {i.name}: parent {i.name.split('.')[0]} isn't defined as a routed interface.")
+
+    # --- port VLANs must be networks in the data model (VXLAN fabrics) ---------------------------
+    if S.vxlan:
+        net_vlans = {n.vlan_id for n in p.networks}
+        for i in p.interfaces:
+            used = set()
+            if i.mode == "access" and i.access_vlan:
+                used.add(i.access_vlan)
+            if i.mode == "trunk":
+                used |= expand_vlans(i.trunk_allowed_vlans) | ({i.native_vlan} if i.native_vlan else set())
+            undefined = used - net_vlans
+            if undefined:
+                warn("Interfaces", f"{i.switch} {i.name} uses VLAN(s) {compress_vlans(undefined)} that aren't networks "
+                                   "in the data model.")
+            if i.mode == "trunk" and i.native_vlan and i.trunk_allowed_vlans and \
+                    i.native_vlan not in expand_vlans(i.trunk_allowed_vlans):
+                warn("Interfaces", f"{i.switch} {i.name}: native VLAN {i.native_vlan} isn't in its allowed VLANs.")
 
     # --- hardware: ports must exist on each switch's model ------------------------------------
     specs = {x.name: hw.get(x.model) for x in sw}

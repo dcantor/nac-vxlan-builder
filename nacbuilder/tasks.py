@@ -5,7 +5,7 @@ the UI can preview the result (compare_projects + check_project) before applying
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from . import hardware as hw
 from .defaults import (
@@ -469,6 +469,9 @@ def border_switches(p: Project, bset: str = "external") -> list[str]:
 
 __all__ = [
     "HostPorts",
+    "PortSpec",
+    "network_vlans",
+    "provision_ports",
     "TrunkSpec",
     "add_vlan",
     "add_vrf",
@@ -483,3 +486,128 @@ __all__ = [
     "onboard_leaf_pair",
     "remove_vrf_lite",
 ]
+
+
+# --- provision host ports ---------------------------------------------------------------
+@dataclass
+class PortSpec:
+    """Host ports to provision.
+
+    attach: "single" (each port on its own), "port-channel" (on each switch) or "vpc" (a vPC pair).
+    bundle: for port-channels/vPCs, one channel with every port as a member (True) or one per port.
+    VLANs must be networks in the data model; the native VLAN is added to the allowed list.
+    """
+
+    ports: str
+    mode: str = "access"  # access | trunk
+    switches: list[str] = field(default_factory=list)  # single / port-channel
+    vpc_pair: str | None = None  # "peer1|peer2" for attach="vpc"
+    attach: str = "single"
+    bundle: bool = False
+    access_vlan: int | None = None
+    allowed_vlans: list[int] = field(default_factory=list)
+    native_vlan: int | None = None
+    description: str | None = None
+    edge: bool = True  # spanning-tree portfast + BPDU guard
+    replace: bool = False  # replace existing config on these ports
+    deploy_networks: bool = True  # also deploy the VLANs' networks (and VRFs) to these switches
+    po_start: int | None = None
+
+
+def network_vlans(p: Project) -> dict[int, str]:
+    """VLAN -> network name, for every network in the data model."""
+    return {n.vlan_id: n.name for n in p.networks}
+
+
+def provision_ports(p: Project, spec: PortSpec) -> Project:
+    q = _copy(p)
+    if spec.mode not in ("access", "trunk"):
+        raise ValueError("interface type must be access or trunk")
+    if spec.attach not in ("single", "port-channel", "vpc"):
+        raise ValueError("attach must be single, port-channel or vpc")
+    known = network_vlans(q)
+    if spec.mode == "access":
+        if spec.access_vlan is None:
+            raise ValueError("pick the access VLAN")
+        vlans = [spec.access_vlan]
+    else:
+        vlans = sorted(set(spec.allowed_vlans) | ({spec.native_vlan} if spec.native_vlan else set()))
+        if not vlans:
+            raise ValueError("pick at least one VLAN for the trunk")
+    unknown = [v for v in vlans if v not in known]
+    if unknown:
+        raise ValueError(f"VLAN(s) {', '.join(map(str, unknown))} aren't networks in the data model; "
+                         "only VLANs defined as networks can be used")
+
+    ports = expand_ports(spec.ports)
+    if not ports:
+        raise ValueError("enter the ports, e.g. Ethernet1/1-4")
+    if spec.attach == "vpc":
+        pair = next((v for v in q.vpc_peers if v.key == spec.vpc_pair), None)
+        if pair is None:
+            raise ValueError("pick a vPC pair")
+        targets = [pair.peer1, pair.peer2]
+    else:
+        targets = list(dict.fromkeys(spec.switches))
+        if not targets:
+            raise ValueError("pick at least one switch")
+    _known_switches(q, targets)
+
+    # Ports already configured (as an interface or a port-channel member) on the target switches
+    taken = {}
+    for i in q.interfaces:
+        if i.switch in targets:
+            for name in ([i.name] if not i.is_port_channel else []) + i.members:
+                taken[(i.switch, name.lower())] = i
+    clashes = sorted({(sw, port) for sw in targets for port in ports if (sw, port.lower()) in taken})
+    if clashes and not spec.replace:
+        raise ValueError("already configured: " + ", ".join(f"{s} {pt}" for s, pt in clashes[:8])
+                         + (" …" if len(clashes) > 8 else "") + " (tick 'Replace existing' to overwrite)")
+    if clashes:  # drop the old interfaces; a port-channel loses those members (and goes if it has none left)
+        gone = {(s, pt.lower()) for s, pt in clashes}
+        kept = []
+        for i in q.interfaces:
+            if i.switch in targets and not i.is_port_channel and (i.switch, i.name.lower()) in gone:
+                continue
+            if i.is_port_channel and i.switch in targets and any((i.switch, m.lower()) in gone for m in i.members):
+                left = [m for m in i.members if (i.switch, m.lower()) not in gone]
+                if not left:
+                    continue
+                i = i.model_copy(update={"members": left})
+            kept.append(i)
+        q.interfaces = kept
+
+    common = {"mode": spec.mode, "description": spec.description or None}
+    if spec.mode == "access":
+        common["access_vlan"] = spec.access_vlan
+    else:
+        common["trunk_allowed_vlans"] = compress_vlans(vlans)
+        common["native_vlan"] = spec.native_vlan
+    if spec.edge:
+        common |= {"spanning_tree_portfast": True, "enable_bpdu_guard": True}
+
+    new: list[Interface] = []
+    if spec.attach == "single":
+        new = [Interface(switch=sw, name=port, **common) for sw in targets for port in ports]
+    else:
+        used_po = {int(m[1]) for i in q.interfaces if i.switch in targets
+                   and (m := re.fullmatch(r"(?i)(?:po|port-channel)(\d+)", i.name))}
+        po = spec.po_start or max([10, *used_po]) + 1
+        while po in used_po:
+            po += 1
+        groups = [ports] if spec.bundle else [[port] for port in ports]
+        for members in groups:
+            extra = {"vpc_id": po} if spec.attach == "vpc" else {}
+            new += [Interface(switch=sw, name=f"port-channel{po}", members=members, **common, **extra) for sw in targets]
+            po += 1
+            while po in used_po:
+                po += 1
+    q.interfaces += new
+
+    if spec.deploy_networks:
+        for vlan in vlans:
+            net = next(n for n in q.networks if n.vlan_id == vlan)
+            _ensure_attached(q, "network", net.name, targets)
+            if net.vrf_name:
+                _ensure_attached(q, "vrf", net.vrf_name, targets)
+    return q

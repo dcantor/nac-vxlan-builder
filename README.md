@@ -73,6 +73,17 @@ Nothing changes until you click **Apply**.
 - **New tenant:** a VRF and its networks, with VLANs and VNIs allocated automatically, plus the
   attach group they use. If the group doesn't exist, it's created with every leaf. You can
   also add a VRF-lite handoff to the external borders.
+- **Provision ports:** access or trunk host ports, as single ports, a port-channel per switch,
+  or a vPC port-channel on a vPC pair. You can make one channel per port or bundle all ports
+  into one; port-channel and vPC numbers are picked automatically.
+  - **VLANs:** the access VLAN, tagged (allowed) VLANs and native VLAN can only be picked from
+    the networks in the data model. The task refuses anything else, and the native VLAN is added
+    to the allowed list.
+  - **Other options:** description, edge port (portfast + BPDU guard), and deploying those VLANs'
+    networks (and VRFs) to the switches.
+  - **Ports in use:** they're refused unless you tick *Replace existing*.
+  - **Checks:** a port using a VLAN that isn't a network, or a native VLAN outside the allowed
+    list, gets a warning.
 - **Onboard a leaf pair:** suggests the next leaf names and management IPs. It adds both leafs,
   makes them a vPC pair (peer-link ports or fabric peering), creates one vPC port-channel per
   host port on both leafs, and adds them to attach groups you choose.

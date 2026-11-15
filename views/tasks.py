@@ -11,6 +11,9 @@ from nacbuilder.diffing import compare_projects
 from nacbuilder.models import ATTACHABLE_ROLES, Project
 from nacbuilder.tasks import (
     HostPorts,
+    PortSpec,
+    network_vlans,
+    provision_ports,
     TrunkSpec,
     add_vlan,
     add_vrf,
@@ -52,8 +55,9 @@ if not p.is_vxlan:
             "Decommission is available below.", icon=":material/info:")
     (tab_remove,) = st.tabs(["Decommission"])
 else:
-    tab_tenant, tab_vrf, tab_vlan, tab_extend, tab_leafs, tab_remove = st.tabs(
-        ["New tenant", "Add VRF", "Add VLAN", "Extend to switches", "Onboard a leaf pair", "Decommission"])
+    tab_tenant, tab_vrf, tab_vlan, tab_extend, tab_ports, tab_leafs, tab_remove = st.tabs(
+        ["New tenant", "Add VRF", "Add VLAN", "Extend to switches", "Provision ports", "Onboard a leaf pair",
+         "Decommission"])
 
 attachable = [s.name for s in p.switches if s.role in ATTACHABLE_ROLES]
 leafs = [s.name for s in p.switches if s.role == "leaf"]
@@ -201,6 +205,72 @@ if p.is_vxlan:
                 stage(f"New tenant {vrf_name.strip()} with {len(specs)} network(s)", q)
             except (ValidationError, ValueError) as e:
                 fail(e)
+
+# --- provision host ports ------------------------------------------------------------------
+if p.is_vxlan:
+    with tab_ports:
+        vlan_names = network_vlans(p)
+        vrf_of = {n.vlan_id: n.vrf_name for n in p.networks}
+        if not vlan_names:
+            st.info("There are no VLANs (networks) in the data model yet. Ports can only use VLANs defined as "
+                    "networks, so add some first (Add VLAN or the Networks page).", icon=":material/info:")
+        else:
+            st.caption("Access or trunk host ports, as single ports, port-channels or vPC port-channels. VLANs can "
+                       "only be picked from the networks in the data model.")
+
+            def vlan_label(v):
+                return f"{v} · {vlan_names[v]}" + (f" ({vrf_of[v]})" if vrf_of.get(v) else "")
+
+            c1, c2 = st.columns(2)
+            ptype = c1.radio("Interface type", ["access", "trunk"], horizontal=True, key="pp_type",
+                             format_func=str.capitalize)
+            attach_opts = {"single": "Single ports", "port-channel": "Port-channel", "vpc": "vPC port-channel"}
+            pattach = c2.radio("Attach as", list(attach_opts), horizontal=True, key="pp_attach",
+                               format_func=attach_opts.get)
+            vlan_list = sorted(vlan_names)
+            with st.form("ports"):
+                pair_key, sws = None, []
+                if pattach == "vpc":
+                    if not p.vpc_peers:
+                        st.warning("There are no vPC pairs yet.")
+                    pair_key = st.selectbox("vPC pair", [v.key for v in p.vpc_peers],
+                                            format_func=lambda k: k.replace("|", " + "))
+                else:
+                    sws = st.multiselect("Switches", attachable)
+                c1, c2 = st.columns([2, 1])
+                ports_txt = c1.text_input("Ports", placeholder="Ethernet1/10-12",
+                                          help="Same ports on every switch (both peers for a vPC)")
+                bundle = False
+                if pattach != "single":
+                    bundle = c2.radio("Channels", ["One per port", "One with all ports"], key="pp_bundle") == \
+                        "One with all ports"
+                access_vlan, allowed, native = None, [], None
+                if ptype == "access":
+                    access_vlan = st.selectbox("Access VLAN", vlan_list, format_func=vlan_label)
+                else:
+                    c1, c2 = st.columns([2, 1])
+                    allowed = c1.multiselect("Tagged (allowed) VLANs", vlan_list, format_func=vlan_label)
+                    native = c2.selectbox("Native VLAN", [None, *vlan_list],
+                                          format_func=lambda v: "(none)" if v is None else vlan_label(v),
+                                          help="Added to the allowed VLANs automatically")
+                c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
+                desc = c1.text_input("Description", placeholder="esx-01")
+                edge = c2.checkbox("Edge port", value=True, help="spanning-tree portfast and BPDU guard")
+                deploy = c3.checkbox("Deploy the VLANs here", value=True,
+                                     help="Also deploy these VLANs' networks (and VRFs) to the switches")
+                replace = c4.checkbox("Replace existing", value=False)
+                go = st.form_submit_button("Preview", type="primary")
+            if go:
+                try:
+                    spec = PortSpec(ports=ports_txt, mode=ptype, switches=sws, vpc_pair=pair_key, attach=pattach,
+                                    bundle=bundle, access_vlan=access_vlan, allowed_vlans=allowed, native_vlan=native,
+                                    description=desc or None, edge=edge, replace=replace, deploy_networks=deploy)
+                    q = provision_ports(p, spec)
+                    where = pair_key.replace("|", " + ") if pattach == "vpc" else ", ".join(sws)
+                    kind = {"single": "single ports", "port-channel": "port-channel", "vpc": "vPC port-channel"}[pattach]
+                    stage(f"Provision {ptype} {kind} {ports_txt} on {where}", q)
+                except (ValidationError, ValueError) as e:
+                    fail(e)
 
 # --- onboard a leaf pair ------------------------------------------------------------
 if p.is_vxlan:

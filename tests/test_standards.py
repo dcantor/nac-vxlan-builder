@@ -126,4 +126,5 @@ def test_tasks_page_per_standard(standard, hidden):
     labels = [t.label for t in at.tabs]
     assert not at.exception
     assert labels == (["Decommission"] if standard == "non_vxlan" else
-                      ["New tenant", "Add VRF", "Add VLAN", "Extend to switches", "Onboard a leaf pair", "Decommission"])
+                      ["New tenant", "Add VRF", "Add VLAN", "Extend to switches", "Provision ports", "Onboard a leaf pair",
+                       "Decommission"])
