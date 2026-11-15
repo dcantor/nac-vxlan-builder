@@ -70,10 +70,11 @@ def check_project(p: Project) -> list[Issue]:
     if S.vxlan:
         if p.fabric.type != S.fabric_type:
             err("Fabric", f"Standard: the overlay must be BGP EVPN ({S.fabric_type} with iBGP).")
-        if not p.has_super_spines and p.ibgp.route_reflectors != S.route_reflectors:
+        if S.route_reflectors and not p.has_super_spines and p.ibgp.route_reflectors != S.route_reflectors:
             err("Fabric", f"Standard: {S.route_reflectors} route reflectors required, found {p.ibgp.route_reflectors}.")
-        if p.underlay.general.routing_protocol != S.underlay_protocol:
-            err("Underlay", f"Standard: the underlay must be OSPF, found {p.underlay.general.routing_protocol}.")
+        if S.underlay_protocol and p.underlay.general.routing_protocol != S.underlay_protocol:
+            err("Underlay", f"Standard: the underlay must be {S.underlay_protocol.upper()}, "
+                            f"found {p.underlay.general.routing_protocol}.")
         supers = [s for s in sw if s.role == "super_spine"]
         plain = [s for s in spines if s.role != "super_spine"]
         if p.has_super_spines and p.ibgp.route_reflectors != p.super_spines:
@@ -81,7 +82,7 @@ def check_project(p: Project) -> list[Issue]:
                           f"reflectors (route_reflectors: {p.super_spines}), found {p.ibgp.route_reflectors}.")
         if sw:
             rr_note = "" if p.has_super_spines else " (all route reflectors)"
-            if len(plain) != S.spine_count:
+            if S.spine_count and len(plain) != S.spine_count:
                 err(
                     "Switches",
                     f"Standard: exactly {S.spine_count} spines{rr_note} required, found {len(plain)}.",
@@ -94,7 +95,7 @@ def check_project(p: Project) -> list[Issue]:
                     err("Switches", f"Standard: the super spine layer needs {p.super_spines} super spines "
                                     f"(route reflectors), found {len(supers)}.")
             elif supers:
-                where = ("turn on the super spine layer on the Fabric page" if p.standard == "dc"
+                where = ("turn on the super spine layer on the Fabric page" if S.super_spine_counts
                          else f"a {S.label} has no super spine layer")
                 err("Switches", f"Standard: {', '.join(s.name for s in supers)} {'is a' if len(supers) == 1 else 'are'} "
                                 f"super spine{'s' if len(supers) > 1 else ''}; {where}.")
@@ -107,10 +108,14 @@ def check_project(p: Project) -> list[Issue]:
                         f"found {len(members)}{': ' + ', '.join(members) if members else ''}.",
                     )
             for s in sw:
-                if s.border_set and s.role != "border":
+                if s.border_set and s.border_set not in S.border_sets:
+                    err("Switches", f"Standard: {s.name} is in border set {s.border_set}, which a {S.label} doesn't "
+                                    f"have ({', '.join(S.border_sets) or 'none'}).")
+                elif s.border_set and s.role != "border":
                     err("Switches", f"Standard: {s.name} is in the {s.border_set} border set, so its role must be border.")
                 elif s.role == "border" and not s.border_set:
-                    err("Switches", f"Standard: border {s.name} must be in a border set (client, internal or external).")
+                    err("Switches", f"Standard: border {s.name} must be in a border set "
+                                    f"({', '.join(S.border_sets) or 'none defined'}).")
                 elif "border" in s.role and s.role != "border" and s.role not in SPINE_ROLES:
                     err("Switches", f"Standard: role {s.role} on {s.name} isn't part of the design; use border.")
 

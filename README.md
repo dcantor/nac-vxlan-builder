@@ -305,6 +305,26 @@ which rules the checks enforce, and which pages appear:
 **+ border groups** creates `border-client`, `border-internal` and `border-external`.
 The `all` group contains leafs only.
 
+### Design standards editor (developers only)
+
+The **Design standards (dev)** page, near the bottom of the menu above Day-2 tasks, lets a
+developer change each standard. A red banner marks it as developer-only, and every field stays
+locked until you tick *I understand: let me edit the design standards*.
+
+- **Constraints** (what the checks enforce): name and summary, fabric type, underlay protocol,
+  spine count, route reflectors, allowed super spine layer sizes, allowed switch roles, border
+  sets (key and label) and borders per set. Choose *(not enforced)*, 0 or leave a list empty to
+  turn a rule off.
+- **Defaults** (what **New** in the sidebar starts with): BGP ASN, anycast gateway MAC, overlay
+  and replication mode, link mask, the four underlay IP ranges, the first L3/L2 VNI and VRF/network
+  VLAN for new VRFs and networks, default leaf roles, and a default hardware model per role.
+- **Saving:** each standard is checked first (ASN, MAC, IP ranges, keys), then saved to
+  `nacbuilder/data/standards.yaml`. Review that file's diff and commit it to share the change.
+  Anything missing from the file falls back to the built-in value.
+- **Effect:** the page shows the open fabric's error and warning counts under the current
+  standards. Restart the app to pick up a `standards.yaml` changed outside the page.
+- **Restore built-in standards** deletes the file.
+
 ## Scope (v1)
 
 - One iBGP `VXLAN_EVPN` fabric. eBGP, MSD/multisite, ISN and External fabrics aren't covered.
@@ -338,6 +358,7 @@ nacbuilder/tasks.py     day-2 tasks (new tenant, onboard leaf pair, decommission
 nacbuilder/history.py   snapshots and undo/redo
 nacbuilder/cabling.py   cabling and port plan, Excel/CSV export
 nacbuilder/hardware.py  Nexus 9300 catalog (data/nexus9300.yaml) and per-model port defaults
+nacbuilder/standards.py design standards: built-ins + data/standards.yaml (Design standards page)
 tests/golden/       Cisco's example files, used as expected output
 ```
 

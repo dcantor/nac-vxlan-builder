@@ -121,7 +121,7 @@ with st.expander("Quick generate", expanded=not p.switches, icon=":material/bolt
     if go:
         try:
             if S.vxlan:
-                sw = generate_switches(prefix, leafs, first_ip or None, gw or None, mask,
+                sw = generate_switches(prefix, leafs, first_ip or None, gw or None, mask, standard=p.standard,
                                        super_spines=p.super_spines if p.has_super_spines else 0,
                                        role_models={**hw.suggested(), **p.role_models})
             else:
@@ -144,7 +144,7 @@ with st.form("switches"):
             "name": st.column_config.TextColumn("Name", required=True),
             "role": st.column_config.SelectboxColumn("Role", options=list(ROLES), default="leaf", required=True),
             "border_set": st.column_config.SelectboxColumn(
-                "Border set", options=list(std.BORDER_SETS), help="Borders only: client, internal or external pair"
+                "Border set", options=list(S.border_sets), help=f"Borders only: {', '.join(S.border_sets) or 'none in this standard'}"
             ),
             "leaf_role": st.column_config.SelectboxColumn(
                 "Leaf role", options=sorted(set(p.leaf_roles) | {x.leaf_role for x in p.switches if x.leaf_role}),

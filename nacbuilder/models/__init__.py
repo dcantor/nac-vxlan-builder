@@ -57,11 +57,15 @@ class Project(NacModel):
 
     @property
     def has_super_spines(self) -> bool:
-        return self.standard == "dc" and self.super_spines is not None
+        from ..standards import get
+
+        return self.super_spines is not None and self.super_spines in get(self.standard).super_spine_counts
 
     @property
     def is_vxlan(self) -> bool:
-        return self.standard != "non_vxlan"
+        from ..standards import get
+
+        return get(self.standard).vxlan
 
     def interfaces_of(self, switch: str) -> list[Interface]:
         return [i for i in self.interfaces if i.switch == switch]

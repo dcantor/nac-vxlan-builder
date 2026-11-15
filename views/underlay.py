@@ -19,7 +19,13 @@ def idx(options, value):
 with st.form("underlay"):
     st.subheader("General", divider="gray")
     c1, c2, c3 = st.columns(3)
-    c1.text_input("Routing protocol", "OSPF", disabled=True, help="Fixed by the design standard.")
+    S = std.get(project().standard)
+    if S.underlay_protocol:
+        c1.text_input("Routing protocol", S.underlay_protocol.upper(), disabled=True, help="Fixed by the design standard.")
+        proto = S.underlay_protocol
+    else:
+        protos = ["ospf", "is-is"]
+        proto = c1.selectbox("Routing protocol", protos, index=protos.index(g.routing_protocol))
     reps = ["multicast", "ingress"]
     rep = c2.selectbox("BUM replication", reps, index=idx(reps, g.replication_mode), help="Multicast needs RPs on the spines; ingress uses head-end replication.")
     tag = c3.text_input("Routing protocol tag", g.underlay_routing_protocol_tag)
@@ -63,7 +69,7 @@ if submitted:
     try:
         new = Underlay(
             general=UnderlayGeneral(
-                routing_protocol=std.UNDERLAY_PROTOCOL,
+                routing_protocol=proto,
                 replication_mode=rep,
                 underlay_routing_protocol_tag=tag,
                 underlay_routing_loopback_id=lo_rt,

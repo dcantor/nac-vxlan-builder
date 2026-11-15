@@ -59,7 +59,7 @@ def build_cabling(p: Project, uplinks: UplinkPlan | None = None) -> CablingPlan:
     spines = sorted((s.name for s in p.switches if s.role in SPINE_ROLES and s.role not in super_roles), key=_natural)
     lower = [s.name for s in p.switches if s.role not in SPINE_ROLES]
     sets = {s.name: s.border_set for s in p.switches}
-    order = list(std.BORDER_SETS)
+    order = list(std.get(p.standard).border_sets)
 
     def tier(n):  # leafs first, then borders in standard order (client, internal, external), then the rest
         if "border" not in roles[n]:

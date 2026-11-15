@@ -1,7 +1,7 @@
 """Suggested values so the engineer only edits what differs.
 
-ID starting points follow Nexus Dashboard's default pools: L3 VNI 50000-59000,
-L2 VNI 30000-49000, VRF VLANs 2000-2299, network VLANs 2300-2999.
+ID starting points come from the fabric's design standard (built-in: Nexus Dashboard's default pools,
+L3 VNI from 50001, L2 VNI from 30001, VRF VLANs from 2000, network VLANs from 2300).
 """
 
 import re
@@ -44,6 +44,7 @@ def generate_switches(
     mask: int | None = None,
     super_spines: int = 0,
     role_models: dict[str, str] | None = None,
+    standard: str = "dc",
 ) -> list[Switch]:
     """A standard fabric: optional super spines, 4 spines, `leafs` leafs, then the client/internal/external
     border pairs.
@@ -52,7 +53,8 @@ def generate_switches(
     -border-external1..2. Management IPs are handed out in that order.
     """
     plan: list[tuple[str, str, str | None]] = [(f"superspine{i}", "super_spine", None) for i in range(1, super_spines + 1)]
-    plan += [(f"spine{i}", "spine", None) for i in range(1, std.SPINE_COUNT + 1)]
+    S = std.get(standard)
+    plan += [(f"spine{i}", "spine", None) for i in range(1, (S.spine_count or 2) + 1)]
     leaf_roles: dict[str, str] = {}
     if isinstance(leafs, dict):  # {"compute": 4, "storage": 2} -> <prefix>-leaf-compute1..4, -leaf-storage1..2
         for lr, count in leafs.items():
@@ -61,8 +63,8 @@ def generate_switches(
                 leaf_roles[f"leaf-{lr}{i}"] = lr
     else:
         plan += [(f"leaf{i}", "leaf", None) for i in range(1, leafs + 1)]
-    for bset in std.BORDER_SETS:
-        plan += [(f"border-{bset}{i}", "border", bset) for i in range(1, std.BORDERS_PER_SET + 1)]
+    for bset in S.border_sets:
+        plan += [(f"border-{bset}{i}", "border", bset) for i in range(1, S.borders_per_set + 1)]
 
     ip = IPv4Address(first_mgmt_ip) if first_mgmt_ip else None
     out = []
@@ -100,14 +102,15 @@ def _default_group(p: Project) -> str | None:
 
 
 def next_vrf(p: Project) -> Vrf:
+    D = std.get(p.standard).defaults
     names = {v.name for v in p.vrfs}
     i = len(p.vrfs) + 1
     while f"VRF{i:02d}" in names:
         i += 1
     return Vrf(
         name=f"VRF{i:02d}",
-        vrf_id=_next_free(_used_vnis(p), 50001, 59000),
-        vlan_id=_next_free(_used_vlans(p), 2000, 2299),
+        vrf_id=_next_free(_used_vnis(p), D.l3_vni_start, D.l3_vni_start + 8999),
+        vlan_id=_next_free(_used_vlans(p), D.vrf_vlan_start, D.vrf_vlan_start + 299),
         vrf_attach_group=_default_group(p),
     )
 
@@ -118,11 +121,12 @@ def next_network(p: Project) -> Network:
     while f"NET{i:02d}" in names:
         i += 1
     name = f"NET{i:02d}"
-    vlan = _next_free(_used_vlans(p), 2300, 2999)
+    D = std.get(p.standard).defaults
+    vlan = _next_free(_used_vlans(p), D.network_vlan_start, D.network_vlan_start + 699)
     return Network(
         name=name,
         vrf_name=p.vrfs[0].name if p.vrfs else None,
-        net_id=_next_free(_used_vnis(p), 30001, 49000),
+        net_id=_next_free(_used_vnis(p), D.l2_vni_start, D.l2_vni_start + 18999),
         vlan_id=vlan,
         vlan_name=f"{name}_vlan{vlan}",
         network_attach_group=_default_group(p),
@@ -156,7 +160,7 @@ def groups_per_border_set(p: Project, ports: list[str] | None = None) -> list[At
     """One group per border pair: border-client, border-internal, border-external."""
     return [
         Attachment(group=f"border-{s.border_set}", hostname=s.name, ports=ports or [])
-        for bset in std.BORDER_SETS
+        for bset in std.get(p.standard).border_sets
         for s in p.switches
         if s.border_set == bset
     ]
@@ -180,7 +184,7 @@ def pair_vpc(p: Project, peerlink_ports: list[str] | None = None, fabric_peering
     """
     taken = {x for v in p.vpc_peers for x in (v.peer1, v.peer2)}
     pairs: list[tuple[str, str]] = []
-    for bset in std.BORDER_SETS:
+    for bset in std.get(p.standard).border_sets:
         members = sorted((s.name for s in p.switches if s.border_set == bset and s.name not in taken), key=_natural)
         if len(members) == 2:
             pairs.append((members[0], members[1]))

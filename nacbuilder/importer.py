@@ -162,7 +162,7 @@ def project_from_data(data: dict, default_name: str | None = None) -> ImportResu
     ibgp_raw = glob.pop("ibgp", None)
     if "name" not in fab_raw:
         fab_raw["name"] = glob.get("name") or default_name or "fabric1"
-    fab_raw.setdefault("type", std.FABRIC_TYPE)
+    fab_raw.setdefault("type", "VXLAN_EVPN")
     fabric = model(Fabric, fab_raw, "vxlan.fabric")
     standard = std.for_fabric_type(fab_raw.get("type"))
     if standard == "non_vxlan" and ibgp_raw is None:
@@ -343,11 +343,12 @@ def project_from_data(data: dict, default_name: str | None = None) -> ImportResu
         res.project.leaf_roles = found_roles
         res.notes.append(f"Leaf roles guessed from names: {', '.join(found_roles)}. Check them on the Switches page.")
     supers = [s for s in switches if s.role == "super_spine"]
-    if standard == "dc" and supers:
-        res.project.super_spines = len(supers) if len(supers) in std.SUPER_SPINE_COUNTS else None
+    allowed = std.get(standard).super_spine_counts
+    if allowed and supers:
+        res.project.super_spines = len(supers) if len(supers) in allowed else None
         res.notes.append(f"Found {len(supers)} super spine(s): " + (
             "the DC super spine layer is turned on." if res.project.super_spines else
-            f"the DC standard allows {' or '.join(map(str, std.SUPER_SPINE_COUNTS))}, so the layer is left off; "
+            f"the {std.get(standard).label} standard allows {' or '.join(map(str, allowed))}, so the layer is left off; "
             "fix the count and turn it on on the Fabric page."))
     if standard == "non_vxlan":
         res.notes.append("This is an External fabric, so it uses the Non-VXLAN design standard.")

@@ -38,13 +38,15 @@ if picked != p.standard:
     )
 
 super_n = None
-if picked == "dc":
+if S.super_spine_counts:
     c1, c2 = st.columns([1, 2], vertical_alignment="center")
     layer = c1.toggle("Add a super spine layer", value=p.super_spines is not None, key=f"ss_on_{p.super_spines}",
                       help="A 5-stage fabric: super spines above the 4 spines. The super spines become the route reflectors.")
     if layer:
-        super_n = c2.radio("Super spines", list(std.SUPER_SPINE_COUNTS), horizontal=True,
-                           index=list(std.SUPER_SPINE_COUNTS).index(p.super_spines or 2), key=f"ss_n_{p.super_spines}")
+        counts = list(S.super_spine_counts)
+        super_n = c2.radio("Super spines", counts, horizontal=True,
+                           index=counts.index(p.super_spines) if p.super_spines in counts else 0,
+                           key=f"ss_n_{p.super_spines}")
     if super_n != p.super_spines and picked == p.standard:
         st.warning("Not saved yet: " + (f"adding a layer of {super_n} super spines (they become the route reflectors)."
                                         if super_n else "removing the super spine layer (the 4 spines become the route reflectors again)."),

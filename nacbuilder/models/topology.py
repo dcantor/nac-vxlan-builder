@@ -5,7 +5,6 @@ from typing import Literal, Optional
 
 from pydantic import Field, field_validator
 
-from ..standards import BORDER_SETS
 from .base import NacModel
 
 ROLES = (
@@ -49,7 +48,7 @@ class Switch(NacModel):
     role: Literal[ROLES] = "leaf"
     management: Optional[Management] = None
     # App-only: which border pair this switch belongs to (see standards.py). Not in the NaC schema.
-    border_set: Optional[Literal[tuple(BORDER_SETS)]] = None
+    border_set: Optional[str] = Field(None, pattern=r"^[a-z][a-z0-9_-]{0,23}$")
     # App-only: hardware model from the Nexus 9300 catalog (drives port numbering and port checks).
     model: Optional[str] = Field(None, max_length=40)
     # App-only: leaf sub-role such as compute or storage (see Project.leaf_roles).

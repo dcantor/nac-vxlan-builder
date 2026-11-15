@@ -30,12 +30,13 @@ STEPS = [
 steps = [s for s in STEPS if p.is_vxlan or not s[3]]
 pages = [
     st.Page("views/import_yaml.py", title="Import YAML", icon=":material/upload_file:"),
-    st.Page("views/tasks.py", title="Day-2 tasks", icon=":material/task_alt:"),
     *[st.Page(path, title=f"{n}. {title}", icon=icon, default=(path == "views/fabric.py"))
       for n, (path, title, icon, _) in enumerate(steps, 1)],
 ]
 history_page = st.Page("views/history.py", title="History", icon=":material/history:")
-nav = st.navigation([*pages, history_page])
+standards_page = st.Page("views/standards_editor.py", title="Design standards (dev)", icon=":material/developer_mode:")
+tasks_page = st.Page("views/tasks.py", title="Day-2 tasks", icon=":material/task_alt:")
+nav = st.navigation([*pages, history_page, standards_page, tasks_page], expanded=True)  # show all, Day-2 last
 
 with st.sidebar:
     counts = f"{len(p.switches)} switches" + (f" · {len(p.vrfs)} VRFs · {len(p.networks)} networks" if p.is_vxlan else "")
@@ -85,9 +86,10 @@ with st.sidebar:
         set_project(standard_example(), "Loaded the example fabric")
         st.rerun()
     with c2.popover("New", use_container_width=True):
-        st.write("Discard the current project?")
+        st.write("Discard the current project and start a new one from a standard's defaults?")
+        new_std = st.selectbox("Design standard", list(std.KEYS), format_func=lambda k: std.get(k).label, key="new_std")
         if st.button("Yes, start over", type="primary"):
-            set_project(Project(), "Started a new project")
+            set_project(std.new_project(new_std), f"Started a new {std.get(new_std).label} project")
             st.rerun()
 
 show_flash()
