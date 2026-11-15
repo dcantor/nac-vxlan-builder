@@ -12,6 +12,7 @@ import pandas as pd
 import streamlit as st
 
 from .checks import Issue, check_project
+from .history import EMPTY, History, UndoStack
 from .models import Project
 from .tabular import TEMPLATES, build_rows, clean, fmt_errors, import_csv, records, template_csv  # noqa: F401 (re-exported)
 
@@ -27,11 +28,38 @@ def project() -> Project:
     return st.session_state.project
 
 
-def set_project(p: Project, flash: str | None = None) -> None:
+def undo_stack() -> UndoStack:
+    if "undo" not in st.session_state:
+        st.session_state.undo = UndoStack()
+    return st.session_state.undo
+
+
+def set_project(p: Project, flash: str | None = None, record: bool = True) -> None:
+    """Replace the project. Unless record=False (undo/redo), the change is snapshotted to history."""
+    if record and p != st.session_state.get("project"):
+        stack, hist = undo_stack(), History()
+        try:
+            if not stack.entries:  # first change this session: remember where we started
+                start = st.session_state.get("project") or Project()
+                stack.push(EMPTY if start == Project() else str(hist.record(start, "Session start").path), "Session start")
+            label = flash or "Change"
+            stack.push(str(hist.record(p, label).path), label)
+        except OSError as e:  # history is a convenience; never block a save on it
+            st.session_state.history_error = str(e)
     st.session_state.project = p
     st.session_state.editor_ver = st.session_state.get("editor_ver", 0) + 1
     if flash:
         st.session_state.flash = flash
+
+
+def undo() -> None:
+    target, label = undo_stack().undo()
+    set_project(History.load(target), f"Undid: {label}", record=False)
+
+
+def redo() -> None:
+    target, label = undo_stack().redo()
+    set_project(History.load(target), f"Redid: {label}", record=False)
 
 
 def save(flash: str | None = None, **changes) -> None:

@@ -133,7 +133,9 @@ def test_unknown_settings_are_kept_and_written_back(rich):
     s1, bl = topo["switches"]
     assert s1["routing_loopback_id"] == 0 and s1["management"]["management_ipv6_address"] == "2001:db8::1"
     assert s1["management"]["management_ipv4_address"] == "10.9.0.1"
-    assert bl["interfaces"][0]["name"] == "Ethernet1/1" and "border_set" not in bl
+    assert bl["interfaces"][0] == {"name": "Ethernet1/1", "mode": "routed", "ipv4_address": "192.0.2.1/30"}
+    assert "border_set" not in bl
+    assert [i.key for i in p.interfaces] == ["dc9-bl-ext1/Ethernet1/1"]
     assert docs["vrfs.nac.yaml"]["vxlan"]["overlay"]["vrfs"][0]["max_bgp_paths"] == 4
     nets = docs["networks.nac.yaml"]["vxlan"]["overlay"]
     assert nets["networks"][0]["arp_suppress"] is True
@@ -157,7 +159,7 @@ def test_deleting_items_drops_them_and_warns(rich):
     p.switches = [s for s in p.switches if s.name != "dc9-bl-ext1"]
     p.networks = [n for n in p.networks if n.name != "WEB"]
     msgs = [i.message for i in check_project(p)]
-    assert any("Switch dc9-bl-ext1 was removed or renamed" in m and "interfaces" in m for m in msgs)
+    assert any("dc9-bl-ext1 Ethernet1/1: switch dc9-bl-ext1 isn't in the topology" in m for m in msgs)
     assert any("Network WEB was removed or renamed" in m for m in msgs)
     docs = build_documents(p)
     names = [s["name"] for s in docs["topology_switches.nac.yaml"]["vxlan"]["topology"]["switches"]]

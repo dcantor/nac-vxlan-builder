@@ -86,12 +86,31 @@ def test_import_page_reads_folder_and_loads(tmp_path):
     assert p.preserved.source == str(fabric)
 
 
-@pytest.mark.parametrize(
-    "page", ["fabric.py", "switches.py", "underlay.py", "attach.py", "vrfs.py", "networks.py", "review.py", "import_yaml.py"]
-)
+PAGES = ["fabric.py", "switches.py", "vpc.py", "underlay.py", "interfaces.py", "attach.py", "vrfs.py", "networks.py",
+         "vrf_lite.py", "topology.py", "review.py", "import_yaml.py", "tasks.py", "history.py"]
+
+
+@pytest.mark.parametrize("page", PAGES)
 def test_every_page_renders_an_imported_fabric(page):
     from nacbuilder.importer import import_folder
 
     p = import_folder(ROOT / "tests" / "golden").project
     at = run_page(page, p)
     assert not at.exception, at.exception
+    assert at.title, f"{page} rendered no title (did the script run at all?)"
+
+
+@pytest.mark.parametrize("page", PAGES)
+def test_every_page_renders_a_full_fabric(page):
+    from tests.test_fabric_features import full_fabric
+
+    at = run_page(page, full_fabric())
+    assert not at.exception, at.exception
+    assert at.title, f"{page} rendered no title (did the script run at all?)"
+
+
+def test_all_scripts_compile():
+    import py_compile
+
+    for path in [ROOT / "app.py", *sorted((ROOT / "views").glob("*.py")), *sorted((ROOT / "nacbuilder").rglob("*.py"))]:
+        py_compile.compile(str(path), doraise=True)

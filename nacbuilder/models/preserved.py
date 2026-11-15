@@ -22,6 +22,9 @@ _DATA_FIELDS = (
     "networks",
     "attach",
     "attach_groups",
+    "vpc_peers",
+    "interfaces",
+    "overlay_extensions",
 )
 
 
@@ -43,6 +46,9 @@ class Preserved(BaseModel):
     networks: dict[str, dict[str, Any]] = Field(default_factory=dict)  # by network name
     attach: dict[str, dict[str, Any]] = Field(default_factory=dict)  # "vrf|network/<group>/<hostname>"
     attach_groups: dict[str, dict[str, Any]] = Field(default_factory=dict)  # "vrf|network/<group>"
+    vpc_peers: dict[str, dict[str, Any]] = Field(default_factory=dict)  # "<peer1>|<peer2>"
+    interfaces: dict[str, dict[str, Any]] = Field(default_factory=dict)  # "<switch>/<interface>"
+    overlay_extensions: dict[str, Any] = Field(default_factory=dict)  # incl. VRF-lite profiles not modelled
 
     def is_empty(self) -> bool:
         return not any(getattr(self, f) for f in _DATA_FIELDS)
@@ -72,6 +78,13 @@ class Preserved(BaseModel):
             if items:
                 fields = sorted({k for d in items.values() for k in d})
                 out.append(f"{len(items)} {label}(s): {', '.join(f'`{k}`' for k in fields)}")
+        if self.vpc_peers:
+            out.append(f"{len(self.vpc_peers)} vPC pair(s): extra settings")
+        if self.interfaces:
+            fields = sorted({k for d in self.interfaces.values() for k in d})
+            out.append(f"{len(self.interfaces)} interface(s): {', '.join(f'`{k}`' for k in fields)}")
+        if self.overlay_extensions:
+            out.append(f"Overlay extensions: {keys(self.overlay_extensions)}")
         if self.attach or self.attach_groups:
             out.append(f"Attach groups: {len(self.attach) + len(self.attach_groups)} extra setting(s)")
         return out

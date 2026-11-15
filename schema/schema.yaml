@@ -1,4 +1,7 @@
 # This is a simplified version of the schema for demonstration purposes.
+# Source: netascode/ansible-dc-vxlan-example 0.9.1. Extended by nac-vxlan-builder with
+# vpc_peers, switch interfaces and overlay_extensions.vrf_lites (key names from the
+# cisco.nac_dc_vxlan 0.9.1 templates) so strict validation covers everything the app writes.
 
 ---
 vxlan: include('vxlan', required=False)
@@ -10,6 +13,7 @@ vxlan:
   topology: include('topology', required=False)
   underlay: include('underlay', required=False)
   overlay: include('overlay', required=False)
+  overlay_extensions: include('overlay_extensions', required=False)
 
 fabric:
   name: regex('^[a-zA-Z][a-zA-Z0-9_-]{0,63}$')
@@ -73,12 +77,14 @@ common_syslog_server:
 # Topology section
 topology:
   switches: list(include('topology_switch'), required=False)
+  vpc_peers: list(include('topology_vpc_peer'), required=False)
 
 topology_switch:
   name: str()
   serial_number: regex('^[a-zA-Z0-9_.:-]{1,16}$', required=False)
   role: enum('spine', 'leaf', 'border', 'border_spine', 'border_gateway', 'border_gateway_spine', 'super_spine', 'border_super_spine', 'border_gateway_super_spine', 'tor', 'core_router', 'edge_router', required=False)
   management: include('topology_switch_management', required=False)
+  interfaces: list(include('topology_switch_interface'), required=False)
 
 topology_switch_management:
   default_gateway_v4: ip(version=4, required=False)
@@ -179,3 +185,59 @@ overlay_network_attach_group:
 overlay_network_attach_group_switch:
   hostname: str()
   ports: list(regex(r'(?i)^(?:e|eth(?:ernet)?)((\d)/\d{1,3})$|^(?:po|port-channel)([1-9]|[1-9][0-9]{1,2}|[1-3][0-9]{3}|40[0-8][0-9]|409[0-6])$'), required=False)
+
+# --- added by nac-vxlan-builder -------------------------------------------------
+topology_vpc_peer:
+  peer1: str()
+  peer2: str()
+  domain_id: int(min=1, max=1000, required=False)
+  fabric_peering: bool(required=False)
+  peer1_peerlink_interfaces: list(include('topology_vpc_peerlink_interface'), required=False)
+  peer2_peerlink_interfaces: list(include('topology_vpc_peerlink_interface'), required=False)
+
+topology_vpc_peerlink_interface:
+  name: regex(r'(?i)^(?:e|eth(?:ernet)?)\d+(?:/\d+){1,2}$')
+
+topology_switch_interface:
+  name: str()
+  mode: enum('access', 'trunk', 'routed', 'routed_po', 'routed_sub', 'loopback')
+  description: str(max=254, required=False)
+  enabled: bool(required=False)
+  mtu: any(int(min=576, max=9216), enum('jumbo', 'default'), required=False)
+  speed: enum('auto', '100mb', '1gb', '10gb', '25gb', '40gb', '100gb', '200gb', '400gb', '800gb', required=False)
+  access_vlan: int(min=1, max=4094, required=False)
+  trunk_allowed_vlans: list(include('topology_vlan_range'), required=False)
+  native_vlan: int(min=1, max=4094, required=False)
+  ipv4_address: ip(version=4, required=False)
+  vrf: str(required=False)
+  dot1q_id: int(min=1, max=4093, required=False)
+  members: list(regex(r'(?i)^(?:e|eth(?:ernet)?)\d+(?:/\d+){1,2}$'), required=False)
+  vpc_id: int(min=1, max=4096, required=False)
+  pc_mode: enum('active', 'passive', 'on', required=False)
+  spanning_tree_portfast: bool(required=False)
+  enable_bpdu_guard: bool(required=False)
+
+topology_vlan_range:
+  from: int(min=1, max=4094)
+  to: int(min=1, max=4094, required=False)
+
+overlay_extensions:
+  vrf_lites: list(include('overlay_extensions_vrf_lite'), required=False)
+
+overlay_extensions_vrf_lite:
+  name: str()
+  vrf: str()
+  switches: list(include('overlay_extensions_vrf_lite_switch'), required=False)
+
+overlay_extensions_vrf_lite_switch:
+  name: str()
+  interfaces: list(include('overlay_extensions_vrf_lite_interface'), required=False)
+  bgp_peers: list(include('overlay_extensions_vrf_lite_bgp_peer'), required=False)
+
+overlay_extensions_vrf_lite_interface:
+  name: str()
+
+overlay_extensions_vrf_lite_bgp_peer:
+  address: ip()
+  remote_as: int(min=1, max=4294967295)
+  description: str(required=False)

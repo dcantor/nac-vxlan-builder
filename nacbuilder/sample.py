@@ -92,7 +92,7 @@ def example_project() -> Project:
 
 def standard_example() -> Project:
     """4 spines (all RRs), 4 leafs, client/internal/external border pairs, OSPF underlay."""
-    from .defaults import generate_switches, group_all_leafs, next_network, next_vrf
+    from .defaults import generate_switches, group_all_leafs, next_network, next_vrf, pair_vpc
 
     switches = generate_switches("dc1", 4, "10.10.0.11", "10.10.0.1", 24)
     for i, s in enumerate(switches, 1):
@@ -109,6 +109,7 @@ def standard_example() -> Project:
         switches=switches,
         underlay=Underlay(multicast=UnderlayMulticast(rendezvous_points=4)),
     )
+    p.vpc_peers = pair_vpc(p, peerlink_ports=["Ethernet1/53", "Ethernet1/54"])
     p.attachments = group_all_leafs(p, ports=["Ethernet1/10"])
     p.vrfs = [next_vrf(p)]
     net = next_network(p)

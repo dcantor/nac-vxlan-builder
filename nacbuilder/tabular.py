@@ -187,3 +187,84 @@ TEMPLATES = {
          "int_desc": "App tier", "route_target_both": "false", "l3gw_on_border": "true"},
     ],
 }
+
+
+# --- vPC pairs and interfaces -------------------------------------------------------
+VPC_COLS = {
+    "peer1": "string",
+    "peer2": "string",
+    "domain_id": "Int64",
+    "fabric_peering": "bool",
+    "peer1_peerlink_interfaces": "string",
+    "peer2_peerlink_interfaces": "string",
+}
+
+INTERFACE_COLS = {
+    "switch": "string",
+    "name": "string",
+    "mode": "string",
+    "description": "string",
+    "access_vlan": "Int64",
+    "trunk_allowed_vlans": "string",
+    "native_vlan": "Int64",
+    "members": "string",
+    "vpc_id": "Int64",
+    "ipv4_address": "string",
+    "vrf": "string",
+    "dot1q_id": "Int64",
+    "mtu": "string",
+    "speed": "string",
+    "enabled": "string",
+}
+
+
+def vpc_to_row(v) -> dict:
+    return {
+        "peer1": v.peer1,
+        "peer2": v.peer2,
+        "domain_id": v.domain_id,
+        "fabric_peering": bool(v.fabric_peering),
+        "peer1_peerlink_interfaces": ", ".join(v.peer1_peerlink_interfaces),
+        "peer2_peerlink_interfaces": ", ".join(v.peer2_peerlink_interfaces),
+    }
+
+
+def vpc_from_row(r: dict):
+    from .models import VpcPeer
+
+    r = dict(r)
+    r["fabric_peering"] = True if _truthy(r.get("fabric_peering")) else None
+    if r["fabric_peering"] is None:
+        r.pop("fabric_peering")
+    return VpcPeer(**r)
+
+
+def interface_to_row(i) -> dict:
+    return {
+        "switch": i.switch,
+        "name": i.name,
+        "mode": i.mode,
+        "description": i.description,
+        "access_vlan": i.access_vlan,
+        "trunk_allowed_vlans": i.trunk_allowed_vlans,
+        "native_vlan": i.native_vlan,
+        "members": ", ".join(i.members),
+        "vpc_id": i.vpc_id,
+        "ipv4_address": str(i.ipv4_address) if i.ipv4_address else None,
+        "vrf": i.vrf,
+        "dot1q_id": i.dot1q_id,
+        "mtu": str(i.mtu) if i.mtu is not None else None,
+        "speed": i.speed,
+        "enabled": None if i.enabled is None else ("yes" if i.enabled else "no"),
+    }
+
+
+def interface_from_row(r: dict):
+    from .models import Interface
+
+    r = dict(r)
+    if "enabled" in r:
+        r["enabled"] = _truthy(r["enabled"])
+    if isinstance(r.get("mode"), str):
+        r["mode"] = r["mode"].lower()
+    return Interface(**r)

@@ -15,7 +15,10 @@ host_vars/<fabric>/
   underlay.nac.yaml           # vxlan.underlay
   vrfs.nac.yaml               # vxlan.overlay.vrfs + vrf_attach_groups
   networks.nac.yaml           # vxlan.overlay.networks + network_attach_groups
+  overlay_extensions.nac.yaml # vxlan.overlay_extensions.vrf_lites (VRF-lite)
 ```
+
+`topology_switches.nac.yaml` also carries `vpc_peers` and each switch's `interfaces`.
 
 ## Setup
 
@@ -33,10 +36,42 @@ pip install -e ".[dev]"
 streamlit run app.py
 ```
 
-Work through the pages in order: **Fabric → Switches → Underlay → Attach groups → VRFs →
-Networks → Review & export**. Each page has a **Save** button; nothing is kept until you save.
+For a new fabric, work through the pages in order: **Fabric → Switches → vPC pairs → Underlay → Interfaces →
+Attach groups → VRFs → Networks → VRF-lite → Topology → Review & export**. Each page has a **Save** button; nothing is kept until you save.
 Use **Load example** in the sidebar to explore with a sample fabric that follows the design standard, and
 **Save project (.json)** to come back to a fabric later.
+
+### Day-2 tasks
+
+The **Day-2 tasks** page bundles common changes that otherwise span several pages. Each one
+shows a preview first: what will be added, removed or changed, and any new check errors.
+Nothing changes until you click **Apply**.
+
+- **New tenant:** a VRF and its networks, with VLANs and VNIs allocated automatically, plus the
+  attach group they use. If the group doesn't exist, it's created with every leaf. You can
+  also add a VRF-lite handoff to the external borders.
+- **Onboard a leaf pair:** suggests the next leaf names and management IPs. It adds both leafs,
+  makes them a vPC pair (peer-link ports or fabric peering), creates one vPC port-channel per
+  host port on both leafs, and adds them to attach groups you choose.
+- **Decommission:** removes switches or VRFs and everything that references them:
+  - **For a switch:** its interfaces, its vPC pair, attach-group rows, VRF-lite entries and kept
+    imported settings. The vPC peer is removed too unless you untick that option.
+  - **For a VRF:** its networks, VRF-lite profiles and sub-interfaces, and attach groups that only
+    it used.
+
+When a VRF-lite handoff is added to a VRF whose attach group is shared with other VRFs or
+networks, the VRF gets its own copy of that group with the borders added. That way only this
+VRF is deployed to the borders.
+
+### History and undo
+
+- **Snapshots:** every saved change is stored as a JSON snapshot in
+  `~/.nac-vxlan-builder/history/<fabric>/`, keeping the last 200 per fabric. Set
+  `NACB_HISTORY_DIR` to store them elsewhere.
+- **Undo/Redo:** the **Undo** and **Redo** buttons in the sidebar step through this session's changes.
+- **History page:** lists every snapshot. Selecting one shows what restoring it would add back,
+  remove or change. **Restore** is itself recorded, so you can undo it. You can also download a
+  snapshot as a project file, or delete a fabric's history.
 
 ### Import existing YAML
 
@@ -90,12 +125,50 @@ The Switches, VRFs and Networks pages each have an **Import CSV** panel:
 Headers are case-insensitive (`Border Set` works). Blank cells mean "not set", and booleans
 accept `true/yes/y/1/x`. To export a table, use the download icon on the table's toolbar.
 
-On **Review & export** you can:
+### vPC pairs, interfaces and VRF-lite
 
-- see cross-checks the schema can't express: duplicate VLANs/VNIs, unknown VRFs or attach groups,
-  more route reflectors than spines, overlapping IP pools, and so on;
-- run `nac-validate` against `schema/schema.yaml`;
-- download a zip, or write the files straight into your NaC repo's `host_vars/<fabric>/`.
+- **vPC pairs:** **Pair automatically** pairs each border set, then the leafs in name order
+  (leaf1 + leaf2, leaf3 + leaf4), using either physical peer-link ports or fabric peering. The
+  checks flag a spine in a pair, a switch in two pairs, missing peer links and duplicate domain
+  IDs. A border set that isn't a vPC pair gets a warning.
+- **Interfaces:**
+  - **Add host ports** bulk-adds access, trunk or routed ports from ranges like `Ethernet1/1-24`.
+  - **Add vPC port-channel** creates the matching port-channel, with the same vPC ID, on both peers.
+  - The table edits everything (access/trunk VLANs, members, vPC ID, IP and VRF, dot1q, MTU,
+    speed), and you can filter it by switch.
+  - The checks catch duplicate ports, ports used in two port-channels or the peer link, a vPC
+    ID on only one peer or with mismatched modes, and unknown VRFs.
+- **VRF-lite:** extends a VRF to external routers over eBGP on dot1q sub-interfaces. It
+  defaults to the external border pair. Give it the uplink port(s), a dot1q tag (default:
+  the VRF's VLAN), a link pool (`/30` or `/31`) and the neighbor ASN. The app then:
+  - creates the routed parent and sub-interfaces;
+  - takes the next free link subnet for each (the switch gets the first address, the neighbor the second);
+  - writes `overlay_extensions.vrf_lites`;
+  - attaches the VRF to those borders.
+  Deleting a handoff can also remove its sub-interfaces.
+- **Topology:** a diagram with spines (RR) on top, leafs in vPC pairs, the three border pairs
+  below, and the VRF-lite handoff to the external routers. Switches with check errors are
+  outlined in red. You can download it as SVG.
+
+Key names for these sections follow Cisco's `cisco.nac_dc_vxlan` 0.9.1 templates.
+
+### Review & export
+
+- **Checks:** cross-checks the schema can't express, such as duplicate VLANs/VNIs, unknown VRFs
+  or attach groups, vPC and interface conflicts, VRF-lite references, overlapping IP pools,
+  and the design standard.
+- **Validation:** **Run nac-validate** checks the files against `schema/schema.yaml` (extended
+  to cover vPC, interfaces and VRF-lite). Under **Validation settings** you can also run
+  Cisco's semantic rules, which are auto-detected from an installed `cisco.nac_dc_vxlan`
+  collection (`ansible-galaxy collection install cisco.nac_dc_vxlan`). You can also point it
+  at a full schema file, such as the one your repo's `DC_VXLAN_SCHEMA` uses. The rules are
+  Python code that runs on your machine, so only use a folder you trust. Settings are saved
+  in `~/.nac-vxlan-builder.json`.
+- **Changes:** before anything is written you see what changes compared with the target
+  folder: switches, vPC pairs, interfaces, VRFs, networks, attach groups and VRF-lite that
+  are added, removed or changed. There's also a line-by-line diff of every file, including
+  files that will be deleted. **Write files** stays disabled when nothing would change.
+- **Export:** download a zip, or write the files into your NaC repo's `host_vars/<fabric>/`.
 
 Then deploy from the NaC repo as usual, e.g. `ansible-playbook -i inventory.yaml vxlan.yaml`.
 
@@ -120,15 +193,17 @@ The `all` group contains leafs only.
 ## Scope (v1)
 
 - One iBGP `VXLAN_EVPN` fabric. eBGP, MSD/multisite, ISN and External fabrics aren't covered.
-- Switches with management IPv4. POAP/preprovisioning, vPC pairs, interfaces and policies aren't covered.
+- Switches with management IPv4. POAP/preprovisioning, policies, breakouts, and dot1q-tunnel or
+  storm-control interface settings aren't edited here. Imported ones are kept unchanged.
+- VRF-lite over eBGP only. OSPF or static VRF-lite profiles are imported and kept unchanged.
 - Layer-3 networks only (every network belongs to a VRF).
 - Switch credentials are never written to YAML. NaC reads them from environment variables
   (`ND_*`, `NDFC_SW_USERNAME`, `NDFC_SW_PASSWORD`).
 
 `schema/schema.yaml` is the simplified schema shipped with `ansible-dc-vxlan-example` tag 0.9.1,
-which covers exactly the keys this app writes. The full schema ships with the
-`cisco.nac_dc_vxlan` collection; point `nacbuilder.validate.nac_validate(schema=...)` at it
-for a stricter check.
+extended with `vpc_peers`, interfaces and `overlay_extensions.vrf_lites`, so it covers exactly
+the keys this app writes. Cisco doesn't publish the full schema in the collection. If you have
+one, set it under **Validation settings**.
 
 ## Layout
 
@@ -139,7 +214,13 @@ nacbuilder/models/  pydantic models; field names = NaC schema keys
 nacbuilder/generate.py  Project -> YAML files (quotes ASNs, MACs, serials for YAML 1.1)
 nacbuilder/checks.py    semantic cross-checks
 nacbuilder/defaults.py  suggested names, VNIs, VLANs, attach groups
-nacbuilder/validate.py  nac-validate wrapper
+nacbuilder/validate.py  nac-validate wrapper (schema + rule folders)
+nacbuilder/settings.py  validation settings, collection auto-detect
+nacbuilder/importer.py  existing YAML -> Project (unknown settings kept)
+nacbuilder/diffing.py   file diffs and added/removed/changed items
+nacbuilder/diagram.py   topology SVG
+nacbuilder/tasks.py     day-2 tasks (new tenant, onboard leaf pair, decommission)
+nacbuilder/history.py   snapshots and undo/redo
 tests/golden/       Cisco's example files, used as expected output
 ```
 

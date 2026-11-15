@@ -6,21 +6,27 @@ from pydantic import ValidationError
 from nacbuilder.checks import check_project
 from nacbuilder.models import Project
 from nacbuilder.sample import standard_example
-from nacbuilder.ui import key, project, set_project, show_flash
+from nacbuilder.ui import key, project, redo, set_project, show_flash, undo, undo_stack
 
 st.set_page_config(page_title="NaC VXLAN Builder", page_icon=":material/lan:", layout="wide")
 
 pages = [
     st.Page("views/import_yaml.py", title="Import YAML", icon=":material/upload_file:"),
+    st.Page("views/tasks.py", title="Day-2 tasks", icon=":material/task_alt:"),
     st.Page("views/fabric.py", title="1. Fabric", icon=":material/hub:", default=True),
     st.Page("views/switches.py", title="2. Switches", icon=":material/dns:"),
-    st.Page("views/underlay.py", title="3. Underlay", icon=":material/route:"),
-    st.Page("views/attach.py", title="4. Attach groups", icon=":material/group_work:"),
-    st.Page("views/vrfs.py", title="5. VRFs", icon=":material/account_tree:"),
-    st.Page("views/networks.py", title="6. Networks", icon=":material/lan:"),
-    st.Page("views/review.py", title="7. Review & export", icon=":material/download:"),
+    st.Page("views/vpc.py", title="3. vPC pairs", icon=":material/link:"),
+    st.Page("views/underlay.py", title="4. Underlay", icon=":material/route:"),
+    st.Page("views/interfaces.py", title="5. Interfaces", icon=":material/settings_ethernet:"),
+    st.Page("views/attach.py", title="6. Attach groups", icon=":material/group_work:"),
+    st.Page("views/vrfs.py", title="7. VRFs", icon=":material/account_tree:"),
+    st.Page("views/networks.py", title="8. Networks", icon=":material/lan:"),
+    st.Page("views/vrf_lite.py", title="9. VRF-lite", icon=":material/alt_route:"),
+    st.Page("views/topology.py", title="10. Topology", icon=":material/schema:"),
+    st.Page("views/review.py", title="11. Review & export", icon=":material/download:"),
 ]
-nav = st.navigation(pages)
+history_page = st.Page("views/history.py", title="History", icon=":material/history:")
+nav = st.navigation([*pages, history_page])
 
 p = project()
 with st.sidebar:
@@ -30,6 +36,24 @@ with st.sidebar:
     warns = len(issues) - errs
     st.caption(f"{'⛔' if errs else '✅'} {errs} errors · ⚠️ {warns} warnings")
     st.page_link(pages[-1], label="Review issues and export")
+
+    stack = undo_stack()
+    c1, c2 = st.columns(2)
+    if c1.button("Undo", icon=":material/undo:", disabled=not stack.can_undo, use_container_width=True,
+                 help=f"Undo: {stack.labels[stack.pos]}" if stack.can_undo else "Nothing to undo"):
+        try:
+            undo()
+        except (ValueError, OSError) as e:
+            st.error(f"Couldn't undo: {e}")
+        st.rerun()
+    if c2.button("Redo", icon=":material/redo:", disabled=not stack.can_redo, use_container_width=True,
+                 help=f"Redo: {stack.labels[stack.pos + 1]}" if stack.can_redo else "Nothing to redo"):
+        try:
+            redo()
+        except (ValueError, OSError) as e:
+            st.error(f"Couldn't redo: {e}")
+        st.rerun()
+    st.page_link(history_page, label="History", icon=":material/history:")
 
     st.divider()
     st.markdown("**Project**")

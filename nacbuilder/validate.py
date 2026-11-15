@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .generate import write_host_vars
@@ -21,6 +21,8 @@ class ValidationResult:
     ok: bool
     output: str
     strict: bool = True
+    schema: str = "bundled"
+    rules: list[str] = field(default_factory=list)  # rule folders that were run
 
 
 def _exe() -> str:
@@ -33,21 +35,38 @@ def _exe() -> str:
     return found
 
 
-def validate_dir(path: Path, schema: Path = SCHEMA, strict: bool = True) -> ValidationResult:
+def _run(cmd: list[str], path: Path) -> tuple[int, str]:
     env = {**os.environ, "NO_COLOR": "1", "TERM": "dumb", "COLUMNS": "200"}
-    cmd = [_exe(), "-s", str(schema), str(path)] + ([] if strict else ["--non-strict"])
-    r = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=120)
-    out = _ANSI.sub("", (r.stdout + r.stderr)).replace(f"{path}{os.sep}", "").strip()
-    return ValidationResult(r.returncode == 0, out, strict)
+    r = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=300)
+    return r.returncode, _ANSI.sub("", (r.stdout + r.stderr)).replace(f"{path}{os.sep}", "").strip()
 
 
-def nac_validate(p: Project, schema: Path = SCHEMA) -> ValidationResult:
+def validate_dir(path: Path, schema: Path = SCHEMA, strict: bool = True, rules: list[Path] | None = None) -> ValidationResult:
+    """Schema check, then each rules folder in turn (nac-validate loads one flat folder per run)."""
+    base = [_exe(), "-s", str(schema), str(path)] + ([] if strict else ["--non-strict"])
+    code, out = _run(base, path)
+    outputs = [out] if out else []
+    ok = code == 0
+    if ok:  # rules assume a schema-valid model
+        for d in rules or []:
+            code, out = _run(base + ["-r", str(d)], path)
+            ok = ok and code == 0
+            if out:
+                outputs.append(f"[rules: {d.name}]\n{out}")
+    return ValidationResult(ok, "\n\n".join(outputs), strict, "bundled" if Path(schema) == SCHEMA else str(schema),
+                            [str(d) for d in rules or []])
+
+
+def nac_validate(p: Project, schema: Path | None = None, rules: list[Path] | None = None) -> ValidationResult:
     """Validate the generated files.
 
-    Settings kept from an imported fabric are often outside the bundled (simplified) schema,
-    so those projects are validated in non-strict mode: unknown keys are allowed, while
-    every key the schema does define is still checked.
+    With the bundled (simplified) schema, fabrics carrying imported settings it doesn't cover are
+    checked in non-strict mode: unknown keys are allowed, every key the schema defines is still
+    checked. A full schema (from your NaC/collection install) is always used in strict mode.
+    `rules` are folders of nac-validate rules, e.g. Cisco's cisco.nac_dc_vxlan validate rules.
     """
+    full = schema is not None and Path(schema) != SCHEMA
+    strict = full or p.preserved.is_empty()
     with tempfile.TemporaryDirectory() as d:
         write_host_vars(p, Path(d))
-        return validate_dir(Path(d) / "host_vars", schema, strict=p.preserved.is_empty())
+        return validate_dir(Path(d) / "host_vars", Path(schema) if full else SCHEMA, strict=strict, rules=rules)

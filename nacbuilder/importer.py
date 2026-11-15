@@ -18,7 +18,11 @@ from pydantic import ValidationError
 from . import standards as std
 from .merge import merge
 from .models import (
+    MODES,
     Attachment,
+    Interface,
+    VpcPeer,
+    VrfLite,
     Fabric,
     GlobalIbgp,
     Management,
@@ -100,6 +104,37 @@ def infer_border_set(name: str) -> str | None:
     return None
 
 
+_IF_FIELDS = set(Interface.model_fields) - {"switch"}
+
+
+def _interface(switch: str, raw) -> tuple[Interface, dict] | None:
+    """Model an interface if its mode is supported; unknown keys come back as extras."""
+    if not isinstance(raw, dict) or raw.get("mode") not in MODES or not raw.get("name"):
+        return None
+    known, extra = _split(raw, _IF_FIELDS)
+    try:
+        return Interface(switch=switch, **known), extra
+    except (ValidationError, TypeError):
+        return None
+
+
+def _vrf_lite(raw) -> VrfLite | None:
+    """Model an eBGP VRF-lite profile; anything with keys beyond name/vrf/switches(name, interfaces, bgp_peers) is kept raw."""
+    if not isinstance(raw, dict) or set(raw) - {"name", "vrf", "switches"}:
+        return None
+    for sw in raw.get("switches") or []:
+        if not isinstance(sw, dict) or set(sw) - {"name", "interfaces", "bgp_peers"}:
+            return None
+        if any(not isinstance(i, dict) or set(i) != {"name"} for i in sw.get("interfaces") or []):
+            return None
+        if any(not isinstance(b, dict) or set(b) - {"address", "remote_as", "description"} for b in sw.get("bgp_peers") or []):
+            return None
+    try:
+        return VrfLite(**raw)
+    except (ValidationError, TypeError):
+        return None
+
+
 def project_from_data(data: dict, default_name: str | None = None) -> ImportResult:
     res = ImportResult()
     err = res.errors.append
@@ -112,7 +147,7 @@ def project_from_data(data: dict, default_name: str | None = None) -> ImportResu
     if ignored:
         res.notes.append(f"Ignored top-level key(s) outside `vxlan:`: {', '.join(ignored)}.")
     vx = copy.deepcopy(vx)
-    pv: dict = {"switches": {}, "vrfs": {}, "networks": {}, "attach": {}, "attach_groups": {}}
+    pv: dict = {"switches": {}, "vrfs": {}, "networks": {}, "attach": {}, "attach_groups": {}, "vpc_peers": {}, "interfaces": {}}
 
     def model(cls, raw: dict, label: str):
         try:
@@ -145,7 +180,7 @@ def project_from_data(data: dict, default_name: str | None = None) -> ImportResu
 
     # topology ----------------------------------------------------------------------
     topo = vx.pop("topology", None) or {}
-    switches = []
+    switches, interfaces = [], []
     for i, raw in enumerate(topo.pop("switches", None) or [], 1):
         if not isinstance(raw, dict) or not raw.get("name"):
             err(f"vxlan.topology.switches item {i}: needs a name.")
@@ -162,9 +197,36 @@ def project_from_data(data: dict, default_name: str | None = None) -> ImportResu
             continue
         if sw.role == "border":
             sw.border_set = infer_border_set(sw.name)
+        raw_ifs = extra.pop("interfaces", None) or []
+        kept_ifs = []
+        for iface in raw_ifs:
+            parsed = _interface(sw.name, iface)
+            if parsed is None:
+                kept_ifs.append(iface)  # mode/settings the app doesn't model: written back as-is
+                continue
+            obj, iextra = parsed
+            interfaces.append(obj)
+            if iextra:
+                pv["interfaces"][obj.key] = iextra
+        if kept_ifs:
+            extra["interfaces"] = kept_ifs
+            res.notes.append(f"{sw.name}: {len(kept_ifs)} interface(s) are kept unchanged (not editable here).")
         if extra:
             pv["switches"][sw.name] = extra
         switches.append(sw)
+
+    vpc_peers = []
+    for raw in topo.pop("vpc_peers", None) or []:
+        known, extra = _split(raw, _fields(VpcPeer))
+        try:
+            v = VpcPeer(**known)
+        except (ValidationError, TypeError):
+            topo.setdefault("vpc_peers", []).append(raw)
+            res.notes.append(f"vPC pair {raw.get('peer1')}/{raw.get('peer2')} is kept unchanged (not editable here).")
+            continue
+        vpc_peers.append(v)
+        if extra:
+            pv["vpc_peers"][v.key] = extra
     pv["topology"] = topo
 
     # underlay ----------------------------------------------------------------------
@@ -233,7 +295,19 @@ def project_from_data(data: dict, default_name: str | None = None) -> ImportResu
                        f"Attach group {gname} / {host}")) is not None:
             attachments.append(a)
     pv["overlay"] = ov
-    pv["other"] = vx  # everything left: policy, multisite, overlay_extensions, ...
+
+    ext = vx.pop("overlay_extensions", None) or {}
+    vrf_lites = []
+    for raw in ext.pop("vrf_lites", None) or []:
+        lite = _vrf_lite(raw)
+        if lite is None:
+            ext.setdefault("vrf_lites", []).append(raw)
+            res.notes.append(f"VRF-lite {raw.get('name')} uses settings this app doesn't edit (e.g. OSPF, static "
+                             "routes), so it's kept unchanged.")
+        else:
+            vrf_lites.append(lite)
+    pv["overlay_extensions"] = ext
+    pv["other"] = vx  # everything left: policy, multisite, ...
 
     if res.errors:
         return res
@@ -245,6 +319,9 @@ def project_from_data(data: dict, default_name: str | None = None) -> ImportResu
         vrfs=vrfs,
         networks=networks,
         attachments=attachments,
+        vpc_peers=vpc_peers,
+        interfaces=interfaces,
+        vrf_lites=vrf_lites,
         preserved=Preserved(**pv),
     )
 

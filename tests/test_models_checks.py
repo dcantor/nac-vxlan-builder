@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from nacbuilder.checks import check_project
-from nacbuilder.defaults import generate_switches, group_all_leafs, groups_per_border_set, next_network, next_vrf
+from nacbuilder.defaults import generate_switches, group_all_leafs, groups_per_border_set, next_network, next_vrf, pair_vpc
 from nacbuilder.models import Attachment, Fabric, GlobalIbgp, Network, Project
 from nacbuilder.sample import example_project, standard_example
 
@@ -140,6 +140,7 @@ def test_border_groups_and_all_group_exclude_borders():
 
 def test_defaults_build_a_clean_fabric():
     p = Project(switches=generate_switches("dc1", 4, "192.0.2.11", "192.0.2.1", 24))
+    p.vpc_peers = pair_vpc(p, fabric_peering=True)
     p.attachments = group_all_leafs(p)
     p.vrfs = [next_vrf(p)]
     p.vrfs.append(next_vrf(p))

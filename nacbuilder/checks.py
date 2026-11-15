@@ -196,6 +196,129 @@ def check_project(p: Project) -> list[Issue]:
         if na.overlaps(nb):
             warn("Networks", f"Gateway subnets of {a} ({na}) and {b} ({nb}) overlap.")
 
+    # --- vPC pairs -------------------------------------------------------------
+    paired: dict[str, str] = {}
+    for v in p.vpc_peers:
+        label = f"vPC {v.peer1}/{v.peer2}"
+        for peer in (v.peer1, v.peer2):
+            if peer not in by_name:
+                err("vPC", f"{label}: switch {peer} is not in the topology.")
+            elif by_name[peer].role in SPINE_ROLES:
+                err("vPC", f"{label}: {peer} is a spine; spines can't be vPC peers.")
+            if peer in paired:
+                err("vPC", f"{peer} is in two vPC pairs ({paired[peer]} and {label}).")
+            paired[peer] = label
+        if v.peer1 in by_name and v.peer2 in by_name and by_name[v.peer1].role != by_name[v.peer2].role:
+            warn("vPC", f"{label}: peers have different roles ({by_name[v.peer1].role}, {by_name[v.peer2].role}).")
+        links1, links2 = v.peer1_peerlink_interfaces, v.peer2_peerlink_interfaces
+        if v.fabric_peering and (links1 or links2):
+            err("vPC", f"{label}: use either fabric peering or physical peer-link ports, not both.")
+        elif not v.fabric_peering and not (links1 and links2):
+            err("vPC", f"{label}: set peer-link ports on both switches, or turn on fabric peering.")
+        elif len(links1) != len(links2):
+            warn("vPC", f"{label}: peer-link has {len(links1)} port(s) on {v.peer1} but {len(links2)} on {v.peer2}.")
+    for d in _dups(v.domain_id for v in p.vpc_peers):
+        err("vPC", f"Duplicate vPC domain ID {d}.")
+    for key_, label in std.BORDER_SETS.items():
+        members = sorted(s.name for s in sw if s.border_set == key_)
+        if len(members) == 2 and not any({v.peer1, v.peer2} == set(members) for v in p.vpc_peers):
+            warn("vPC", f"The {label.lower()} border pair ({', '.join(members)}) isn't a vPC pair.")
+
+    # --- interfaces ------------------------------------------------------------
+    peerlink_ports = {
+        (peer, port.lower())
+        for v in p.vpc_peers
+        for peer, ports in ((v.peer1, v.peer1_peerlink_interfaces), (v.peer2, v.peer2_peerlink_interfaces))
+        for port in ports
+    }
+    vrf_names = {v.name for v in p.vrfs}
+    seen_names: dict[tuple[str, str], int] = {}
+    member_of: dict[tuple[str, str], str] = {}
+    for i in p.interfaces:
+        where = f"{i.switch} {i.name}"
+        if i.switch not in by_name:
+            err("Interfaces", f"{where}: switch {i.switch} isn't in the topology, so this interface won't be written.")
+            continue
+        k = (i.switch, i.name.lower())
+        seen_names[k] = seen_names.get(k, 0) + 1
+        if k in peerlink_ports:
+            err("Interfaces", f"{where} is a vPC peer-link port.")
+        for m in i.members:
+            mk = (i.switch, m.lower())
+            if mk in member_of:
+                err("Interfaces", f"{i.switch} {m} is a member of both {member_of[mk]} and {i.name}.")
+            member_of[mk] = i.name
+            if mk in peerlink_ports:
+                err("Interfaces", f"{where}: member {m} is a vPC peer-link port.")
+        if i.vrf and i.vrf not in vrf_names and i.vrf not in ("default", "management"):
+            err("Interfaces", f"{where} uses VRF {i.vrf}, which doesn't exist.")
+        if i.vpc_id is not None and not p.vpc_peer_of(i.switch):
+            err("Interfaces", f"{where} has vPC ID {i.vpc_id}, but {i.switch} isn't in a vPC pair.")
+    for (swname, name), n in seen_names.items():
+        if n > 1:
+            err("Interfaces", f"{swname} {name} is defined {n} times.")
+    for (swname, name) in seen_names:
+        if (swname, name) in member_of:
+            err("Interfaces", f"{swname} {name} is configured on its own but is also a member of {member_of[(swname, name)]}.")
+    for v in p.vpc_peers:
+        ids = {}
+        for peer in (v.peer1, v.peer2):
+            for i in p.interfaces_of(peer):
+                if i.vpc_id is not None:
+                    ids.setdefault(i.vpc_id, {})[peer] = i
+        for vid, sides in ids.items():
+            if len(sides) == 1:
+                only = next(iter(sides))
+                err("Interfaces", f"vPC ID {vid} is only on {only}; add the matching port-channel on its peer.")
+            else:
+                a, b = sides.values()
+                if a.mode != b.mode:
+                    err("Interfaces", f"vPC ID {vid}: {a.switch} is {a.mode} but {b.switch} is {b.mode}.")
+                elif (a.access_vlan, a.trunk_allowed_vlans, a.native_vlan) != (b.access_vlan, b.trunk_allowed_vlans, b.native_vlan):
+                    warn("Interfaces", f"vPC ID {vid}: VLAN settings differ between {a.switch} and {b.switch}.")
+    for i in p.interfaces:
+        if i.mode == "routed_sub":
+            parent = i.name.split(".")[0].lower()
+            if not any(j.switch == i.switch and j.name.lower() == parent and j.mode in ("routed", "routed_po") for j in p.interfaces):
+                warn("Interfaces", f"{i.switch} {i.name}: parent {i.name.split('.')[0]} isn't defined as a routed interface.")
+
+    # --- VRF-lite ----------------------------------------------------------------
+    ifs = {(i.switch, i.name.lower()): i for i in p.interfaces}
+    for d in _dups(v.name for v in p.vrf_lites):
+        err("VRF-lite", f"Duplicate VRF-lite name {d}.")
+    for lite in p.vrf_lites:
+        label = f"VRF-lite {lite.name}"
+        if lite.vrf not in vrf_names:
+            err("VRF-lite", f"{label} extends VRF {lite.vrf}, which doesn't exist.")
+        vrf_obj = next((v for v in p.vrfs if v.name == lite.vrf), None)
+        vrf_hosts = {a.hostname for a in vrf_groups.get(vrf_obj.vrf_attach_group or "", [])} if vrf_obj else set()
+        for s in lite.switches:
+            if s.name not in by_name:
+                err("VRF-lite", f"{label}: switch {s.name} isn't in the topology.")
+                continue
+            if by_name[s.name].role not in ("border", "border_spine", "border_gateway", "border_gateway_spine"):
+                warn("VRF-lite", f"{label}: {s.name} is a {by_name[s.name].role}; VRF-lite normally runs on borders.")
+            if vrf_obj and s.name not in vrf_hosts:
+                err("VRF-lite", f"{label}: VRF {lite.vrf} isn't attached to {s.name} (add it to the VRF's attach group).")
+            if not s.interfaces:
+                err("VRF-lite", f"{label}: {s.name} has no interfaces.")
+            if not s.bgp_peers:
+                warn("VRF-lite", f"{label}: {s.name} has no eBGP neighbors.")
+            nets = []
+            for name in s.interfaces:
+                i = ifs.get((s.name, name.lower()))
+                if i is None:
+                    err("VRF-lite", f"{label}: {s.name} {name} isn't defined on the Interfaces page.")
+                elif i.vrf != lite.vrf:
+                    err("VRF-lite", f"{label}: {s.name} {name} is in VRF {i.vrf or '(none)'}, not {lite.vrf}.")
+                elif i.ipv4_address:
+                    nets.append(i.ipv4_address.network)
+            for peer in s.bgp_peers:
+                if nets and not any(peer.address in n for n in nets):
+                    warn("VRF-lite", f"{label}: neighbor {peer.address} on {s.name} isn't in any of its VRF-lite interface subnets.")
+                if str(peer.remote_as) == p.ibgp.bgp_asn:
+                    err("VRF-lite", f"{label}: neighbor {peer.address} uses the fabric's own ASN; VRF-lite here is eBGP.")
+
     # --- settings kept from an imported fabric --------------------------------
     pv = p.preserved
     for section, label, kept, names in (

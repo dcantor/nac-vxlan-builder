@@ -86,7 +86,6 @@ def test_round_trip_through_csv_keeps_project_clean():
     vrfs, e2 = import_csv(vrf_csv, list(VRF_COLS), vrf_from_row)
     nets, e3 = import_csv(net_csv, list(NETWORK_COLS), network_from_row)
     assert e1 == e2 == e3 == []
-    q = Project(fabric=p.fabric, ibgp=p.ibgp, underlay=p.underlay, attachments=p.attachments,
-                switches=sw, vrfs=vrfs, networks=nets)
+    q = p.model_copy(update={"switches": sw, "vrfs": vrfs, "networks": nets})
     assert q == p
     assert check_project(q) == []

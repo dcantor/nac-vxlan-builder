@@ -19,8 +19,9 @@ TOPOLOGY = "topology_switches.nac.yaml"
 UNDERLAY = "underlay.nac.yaml"
 VRFS = "vrfs.nac.yaml"
 NETWORKS = "networks.nac.yaml"
+OVERLAY_EXT = "overlay_extensions.nac.yaml"  # VRF-lite
 OTHER = "other.nac.yaml"  # imported sections the app doesn't model (policy, multisite, ...)
-FILE_ORDER = [GLOBAL, TOPOLOGY, UNDERLAY, VRFS, NETWORKS, OTHER]
+FILE_ORDER = [GLOBAL, TOPOLOGY, UNDERLAY, VRFS, NETWORKS, OVERLAY_EXT, OTHER]
 
 # Always quoted: values Ansible (YAML 1.1) could mis-type, e.g. ASN 65001 -> int,
 # a MAC such as 12:34:56:12:34:56 -> sexagesimal int, an all-digit serial -> int.
@@ -68,9 +69,16 @@ def build_documents(p: Project) -> dict[str, dict]:
         GLOBAL: {"vxlan": {"fabric": keep(p.fabric.to_nac(), pv.fabric), "global": keep({"ibgp": ibgp}, pv.global_extra)}},
         UNDERLAY: {"vxlan": {"underlay": keep(p.underlay.to_nac(), pv.underlay)}},
     }
-    if p.switches or pv.topology:
-        switches = [keep(s.to_nac(), pv.switches.get(s.name)) for s in p.switches]
-        docs[TOPOLOGY] = {"vxlan": {"topology": keep({"switches": switches}, pv.topology)}}
+    if p.switches or pv.topology or p.vpc_peers:
+        switches = []
+        for s in p.switches:
+            d = s.to_nac()
+            ifs = [keep(i.to_nac(), pv.interfaces.get(i.key)) for i in p.interfaces_of(s.name)]
+            if ifs:
+                d["interfaces"] = ifs
+            switches.append(keep(d, pv.switches.get(s.name)))
+        topo = {"switches": switches, "vpc_peers": [keep(v.to_nac(), pv.vpc_peers.get(v.key)) for v in p.vpc_peers]}
+        docs[TOPOLOGY] = {"vxlan": {"topology": keep(topo, pv.topology)}}
 
     if p.vrfs:
         groups = _attach_groups(p, "vrf", {v.vrf_attach_group for v in p.vrfs})
@@ -82,6 +90,10 @@ def build_documents(p: Project) -> dict[str, dict]:
         overlay = {"networks": [keep(n.to_nac(), pv.networks.get(n.name)) for n in p.networks],
                    "network_attach_groups": groups}
         docs[NETWORKS] = {"vxlan": {"overlay": keep(overlay, pv.overlay)}}
+
+    if p.vrf_lites or pv.overlay_extensions:
+        ext = keep({"vrf_lites": [v.to_nac() for v in p.vrf_lites]}, pv.overlay_extensions)
+        docs[OVERLAY_EXT] = {"vxlan": {"overlay_extensions": ext}}
 
     if pv.other:
         docs[OTHER] = {"vxlan": pv.other}
