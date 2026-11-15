@@ -1,9 +1,11 @@
 from pathlib import Path
 
 import streamlit as st
+from pydantic import ValidationError
 
 from nacbuilder import standards as std
 from nacbuilder.checks import check_project
+from nacbuilder.clone import CloneSpec, clone_fabric, suggest
 from nacbuilder.diffing import change_summary, file_diffs
 from nacbuilder.generate import apply_write, plan_write, render_all, zip_bytes
 from nacbuilder.paths import fabric_export_dir
@@ -20,7 +22,7 @@ from nacbuilder.settings import (
     save_settings,
 )
 from nacbuilder.validate import nac_validate
-from nacbuilder.ui import project
+from nacbuilder.ui import project, set_project
 
 p = project()
 
@@ -206,3 +208,48 @@ else:
         if removed:
             msg += f" and deleted {', '.join(removed)}"
         st.success(msg + ".")
+
+st.markdown("**Clone fabric**")
+with st.expander("Make a copy of this fabric under a new name", icon=":material/content_copy:"):
+    st.caption(
+        "Builds a new fabric from this one (for example `dc1` → `dc2`), renaming every switch everywhere it's "
+        "used: vPC pairs, interfaces, attach groups, VRF-lite and kept settings. The clone opens in place of "
+        "this fabric; Undo or History brings the original back."
+    )
+    sug = suggest(p)
+    with st.form(f"clone_{p.fabric.name}"):
+        c1, c2, c3 = st.columns(3)
+        c_name = c1.text_input("New fabric name", sug.name)
+        c_old = c2.text_input("Replace switch-name prefix", sug.old_prefix, help="Blank = keep the switch names.")
+        c_new = c3.text_input("with", sug.new_prefix)
+        c1, c2, c3 = st.columns(3)
+        ips = sorted(s.management.management_ipv4_address for s in p.switches
+                     if s.management and s.management.management_ipv4_address)
+        c_ip = c1.text_input(
+            "New first management IP", "", placeholder=f"blank = keep (now {ips[0]})" if ips else "no management IPs",
+            help="The lowest management IP moves here; every other management IP and gateway moves by the same amount.",
+            disabled=not ips,
+        )
+        c_asn = c2.text_input("BGP ASN", p.ibgp.bgp_asn)
+        c_serials = c3.checkbox("Clear serial numbers", True, help="Serials belong to physical switches.")
+        c_write = st.checkbox("Also write the clone's YAML to export/<new name>/", True)
+        go = st.form_submit_button("Clone fabric", type="primary", icon=":material/content_copy:")
+    if go:
+        spec = CloneSpec(name=c_name.strip(), old_prefix=c_old.strip(), new_prefix=c_new.strip(),
+                         clear_serials=c_serials, first_mgmt_ip=c_ip.strip() or None,
+                         bgp_asn=None if c_asn.strip() == p.ibgp.bgp_asn else c_asn.strip())
+        try:
+            clone = clone_fabric(p, spec)
+        except (ValueError, ValidationError) as e:
+            st.error(f"Not cloned: {e}")
+        else:
+            msg = f"Cloned {p.fabric.name} to {clone.fabric.name}"
+            if c_write:
+                out = fabric_export_dir(clone.fabric.name)
+                if plan_write(clone, out).replace:  # never overwrite silently; write from this page instead
+                    msg += f". export/{clone.fabric.name}/ already has files, so nothing was written: review and write below"
+                else:
+                    written, _ = apply_write(clone, out, remove_stale=False)
+                    msg += f" and wrote {len(written)} file(s) to export/{clone.fabric.name}/"
+            set_project(clone, msg)
+            st.rerun()

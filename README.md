@@ -269,6 +269,12 @@ Key names for these sections follow Cisco's `cisco.nac_dc_vxlan` 0.9.1 templates
   folder for each fabric it works on (the sidebar shows the current one). Its contents are
   git-ignored. A fabric imported from a folder defaults to that folder instead, and you can
   type your NaC repo's `host_vars/<fabric>/` to write there directly.
+- **Clone fabric:** makes a copy under a new name, for example `dc1` → `dc2`. It renames
+  every switch by swapping its name prefix (`dc1-` → `dc2-`) in vPC pairs, interfaces, attach
+  groups, VRF-lite and kept settings. Serial numbers are cleared by default. Optionally it moves
+  all management IPs and gateways by the same offset and sets a new BGP ASN. The clone replaces the
+  open fabric (Undo or History brings the original back) and, by default, its YAML is written to
+  `export/<new name>/`. It won't overwrite a folder that already has files.
 
 Then deploy from the NaC repo as usual, e.g. `ansible-playbook -i inventory.yaml vxlan.yaml`.
 
@@ -363,6 +369,7 @@ nacbuilder/history.py   snapshots and undo/redo
 nacbuilder/cabling.py   cabling and port plan, Excel/CSV export
 nacbuilder/hardware.py  Nexus 9300 catalog (data/nexus9300.yaml) and per-model port defaults
 nacbuilder/paths.py     export/<fabric>/ folders
+nacbuilder/clone.py     clone a fabric under a new name
 nacbuilder/standards.py design standards: built-ins + data/standards.yaml (Design standards page)
 tests/golden/       Cisco's example files, used as expected output
 ```
