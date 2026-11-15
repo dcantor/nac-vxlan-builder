@@ -611,3 +611,23 @@ def provision_ports(p: Project, spec: PortSpec) -> Project:
             if net.vrf_name:
                 _ensure_attached(q, "vrf", net.vrf_name, targets)
     return q
+
+
+def clear_fabric(p: Project) -> Project:
+    """Every setting back to a fresh fabric of the same standard; keeps only the name and standard."""
+    from . import standards as std
+
+    q = std.new_project(p.standard)
+    q.fabric = q.fabric.model_copy(update={"name": p.fabric.name})
+    return std.apply_locks(q)
+
+
+def clear_summary(p: Project) -> list[str]:
+    """What clear_fabric deletes, for the confirmation."""
+    parts = [(len(p.switches), "switch(es)"), (len(p.vpc_peers), "vPC pair(s)"), (len(p.interfaces), "interface(s)"),
+             (len(p.vrfs), "VRF(s)"), (len(p.networks), "network(s)"),
+             (len({a.group for a in p.attachments}), "attach group(s)"), (len(p.vrf_lites), "VRF-lite profile(s)")]
+    out = [f"{n} {what}" for n, what in parts if n]
+    if not p.preserved.is_empty():
+        out.append("settings kept from the imported YAML")
+    return out

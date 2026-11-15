@@ -64,6 +64,14 @@ spreadsheet:
 - **Export:** an Excel workbook (Cabling, Ports, vPC pairs, VRF-lite and Notes sheets, with
   filters and frozen headers) or a zip of CSVs.
 
+### Clear fabric
+
+At the bottom of the **Fabric** page, **Clear all settings…** deletes every value in the open
+fabric and starts it again from its design standard's defaults. It keeps only the fabric name and
+standard. It lists what will be deleted and won't run until you type the fabric name to confirm.
+Files already written to `export/<fabric>/` or a NaC repo aren't touched, and Undo or History brings
+the settings back.
+
 ### Day-2 tasks
 
 The **Day-2 tasks** page bundles common changes that otherwise span several pages. Each one
@@ -107,6 +115,13 @@ Nothing changes until you click **Apply**.
 When a VRF-lite handoff is added to a VRF whose attach group is shared with other VRFs or
 networks, the VRF gets its own copy of that group with the borders added. That way only this
 VRF is deployed to the borders.
+
+**Port map (Provision ports):** below the form, a front-panel view of the chosen switches
+(a vPC leaf pair by default), laid out like a Nexus 9300 from the switch's model: odd ports on
+top, even below. Green ports are enabled in the YAML, red ones are disabled (`enabled: false`), and
+gray ones aren't in the YAML. Port-channel members take their port-channel's state, and vPC
+peer-link ports count as enabled. Hover a port to see its interface, VLANs and description. When
+you preview a change, a second map shows the result with the new ports outlined in blue.
 
 ### History and undo
 
@@ -381,6 +396,7 @@ nacbuilder/cabling.py   cabling and port plan, Excel/CSV export
 nacbuilder/hardware.py  Nexus 9300 catalog (data/nexus9300.yaml) and per-model port defaults
 nacbuilder/paths.py     export/<fabric>/ folders
 nacbuilder/clone.py     clone a fabric under a new name
+nacbuilder/portmap.py   per-switch port states and the front-panel SVG
 nacbuilder/standards.py design standards: built-ins + data/standards.yaml (Design standards page)
 tests/golden/       Cisco's example files, used as expected output
 ```

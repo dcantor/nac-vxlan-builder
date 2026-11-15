@@ -2,6 +2,7 @@ import hashlib
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from pydantic import ValidationError
 
 from nacbuilder import hardware as hw
@@ -10,6 +11,7 @@ from nacbuilder.checks import check_project
 from nacbuilder.defaults import expand_ports, model_for, model_key, vrf_lite_uplink
 from nacbuilder.diffing import compare_projects
 from nacbuilder.models import ATTACHABLE_ROLES, Project
+from nacbuilder.portmap import render_svg, switch_ports
 from nacbuilder.tasks import (
     HostPorts,
     PortSpec,
@@ -50,6 +52,19 @@ def fail(e: Exception) -> None:
 
 st.title("Day-2 tasks")
 st.caption("Common changes that touch several pages at once. Each shows a preview first; nothing changes until you apply it.")
+
+
+def show_port_map(proj, switches, highlight=frozenset()):
+    """Front-panel map: green = enabled in the YAML, red = disabled (enabled: false), gray = not in the YAML."""
+    if not switches:
+        return
+    svg, height = render_svg(proj, switches, highlight)
+    components.html(
+        '<body style="margin:0;background:#f6f7f9;color:#31333f;border-radius:8px;overflow-x:auto">'
+        f'{svg}</body>', height=height + 8, scrolling=False)
+    st.caption(":green[■] enabled in the YAML · :red[■] disabled (`enabled: false`) · :gray[■] not in the YAML"
+               + (" · blue outline = added by this preview" if highlight else "") + ". Hover a port for details.")
+
 
 if not p.is_vxlan:
     st.info("This fabric uses the Non-VXLAN design: tenant, VRF, VLAN and leaf-pair tasks don't apply. "
@@ -273,6 +288,14 @@ if p.is_vxlan:
                 except (ValidationError, ValueError) as e:
                     fail(e)
 
+        st.markdown("**Port map**")
+        map_opts = [s.name for s in p.switches if s.role in ATTACHABLE_ROLES] or [s.name for s in p.switches]
+        roles = {s.name: s.role for s in p.switches}
+        pairs = [[v.peer1, v.peer2] for v in p.vpc_peers if v.peer1 in map_opts and v.peer2 in map_opts]
+        default_pair = next((pr for pr in pairs if roles[pr[0]] == "leaf"), pairs[0] if pairs else map_opts[:2])
+        shown = st.multiselect("Show switches", map_opts, default=default_pair, key=key("pp_map"))
+        show_port_map(p, shown)
+
 # --- onboard a leaf pair ------------------------------------------------------------
 if p.is_vxlan:
     with tab_leafs:
@@ -374,6 +397,13 @@ if pv:
         st.warning("New warnings:\n\n" + "\n".join(f"- **{i.section}**: {i.message}" for i in new_warnings))
     if not new_issues:
         st.success("No new errors or warnings.", icon="✅")
+    if pv["label"].startswith("Provision "):
+        before_ports = {(sw.name, pt.number, pt.state, tuple(pt.details)) for sw in p.switches
+                        for pt in switch_ports(p, sw.name)}
+        touched = {(sw.name, pt.number) for sw in q.switches for pt in switch_ports(q, sw.name)
+                   if pt.state != "unused" and (sw.name, pt.number, pt.state, tuple(pt.details)) not in before_ports}
+        st.markdown("**Port map after this change**")
+        show_port_map(q, sorted({sw for sw, _ in touched}, key=[s.name for s in q.switches].index), touched)
     c1, c2, _ = st.columns([1, 1, 3])
     if c1.button("Apply", type="primary", disabled=pv["base"] != fingerprint(p), use_container_width=True):
         del st.session_state["task_preview"]

@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from nacbuilder import standards as std
 from nacbuilder.models import Fabric, GlobalIbgp, ManagementServer, SyslogServer
+from nacbuilder.tasks import clear_fabric, clear_summary
 from nacbuilder.ui import LOCKED, build_rows, fmt_errors, frame, key, project, records, section_issues, set_project, show_errors
 
 p = project()
@@ -176,3 +177,18 @@ if submitted:
         set_project(std.apply_locks(q), label)  # locked standard values always win
 
 section_issues("Fabric")
+
+st.subheader("Clear fabric", divider="red")
+gone = clear_summary(p)
+with st.popover("Clear all settings…", icon=":material/delete_forever:", disabled=p == clear_fabric(p)):
+    st.markdown(f"This deletes **every value** in `{p.fabric.name}` and starts it again from the "
+                f"{std.get(p.standard).label} defaults. Only the fabric name and design standard are kept.")
+    if gone:
+        st.markdown("Deleted: " + ", ".join(gone) + ", plus the global, underlay and management settings.")
+    st.caption(f"Files already written to export/{p.fabric.name}/ or a NaC repo aren't touched. "
+               "Undo or History can bring the settings back.")
+    typed = st.text_input(f"Type **{p.fabric.name}** to confirm", key=f"clear_confirm_{p.fabric.name}")
+    if st.button("Delete all values", type="primary", icon=":material/delete_forever:",
+                 disabled=typed.strip() != p.fabric.name, key="clear_go"):
+        set_project(clear_fabric(p), f"Cleared all settings for {p.fabric.name}")
+        st.rerun()
