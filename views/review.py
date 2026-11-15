@@ -5,7 +5,18 @@ import streamlit as st
 from nacbuilder.checks import check_project
 from nacbuilder.diffing import change_summary, file_diffs
 from nacbuilder.generate import apply_write, plan_write, render_all, zip_bytes
-from nacbuilder.settings import Settings, find_collection_rules, load_settings, resolve_rules, save_settings
+from nacbuilder.settings import (
+    COLLECTION_NAME,
+    Settings,
+    collection_version,
+    find_collection_rules,
+    install_cisco_rules,
+    is_windows,
+    load_settings,
+    resolve_rules,
+    rules_supported,
+    save_settings,
+)
 from nacbuilder.validate import nac_validate
 from nacbuilder.ui import project
 
@@ -28,24 +39,39 @@ for i in warnings:
 st.subheader("Validation", divider="gray")
 cfg = load_settings()
 with st.expander("Validation settings", icon=":material/tune:"):
-    detected = find_collection_rules()
-    st.caption(
-        "Point these at your own install. Cisco's rules are Python code that runs on this machine, "
-        "so only use a folder you trust, such as the `cisco.nac_dc_vxlan` collection you installed with ansible-galaxy."
-    )
     schema_txt = st.text_input(
         "Full schema file (blank = bundled simplified schema)", cfg.schema_path,
         help="e.g. the schema.yaml your NaC repo points DC_VXLAN_SCHEMA at",
     )
-    use_rules = st.checkbox("Run Cisco's semantic rules", cfg.use_rules)
-    rules_txt = st.text_input(
-        "Rules folder (blank = auto-detect)", cfg.rules_path,
-        placeholder=str(detected) if detected else "…/ansible_collections/cisco/nac_dc_vxlan/roles/validate/files/rules",
-    )
-    if not rules_txt:
-        st.caption(f"Auto-detected: `{detected}`" if detected else
-                   "No installed `cisco.nac_dc_vxlan` collection found. Install it (`ansible-galaxy collection install "
-                   "cisco.nac_dc_vxlan`) or enter the rules folder.")
+    use_rules, rules_txt = cfg.use_rules, cfg.rules_path
+    if rules_supported():
+        detected = find_collection_rules()
+        st.markdown("**Cisco's semantic rules**")
+        if detected:
+            st.caption(f"`{COLLECTION_NAME}` {collection_version(detected) or ''} is installed: `{detected}`. "
+                       "Its rules are Python code that runs on this Mac when you validate.")
+        else:
+            st.caption(f"`{COLLECTION_NAME}` isn't installed. **Install** adds `ansible-core` to this app's Python "
+                       "environment and the collection to `~/.ansible/collections` (downloads from PyPI and "
+                       "Ansible Galaxy, about 100 MB). It can take a few minutes.")
+            if st.button("Install Cisco's rules", icon=":material/download:", type="primary"):
+                with st.spinner("Installing ansible-core and cisco.nac_dc_vxlan…"):
+                    result = install_cisco_rules()
+                st.session_state.rules_install = result
+                st.rerun()
+        if (res := st.session_state.get("rules_install")) is not None:
+            (st.success if res.ok else st.error)("Installed." if res.ok else "Install failed:", icon="✅" if res.ok else "⛔")
+            with st.expander("Install log", expanded=not res.ok):
+                st.code(res.log, language="text")
+        use_rules = st.checkbox("Run Cisco's semantic rules when validating", cfg.use_rules)
+        rules_txt = st.text_input(
+            "Rules folder (blank = the installed collection)", cfg.rules_path,
+            placeholder=str(detected) if detected else "…/ansible_collections/cisco/nac_dc_vxlan/roles/validate/files/rules",
+        )
+    else:
+        where = "Windows" if is_windows() else "this operating system"
+        st.caption(f"Cisco's semantic rules come with an Ansible collection, and Ansible doesn't run on {where}, so "
+                   "they're offered only when the app runs on macOS. Validation here uses the schema.")
     if st.button("Save settings"):
         problems = []
         if schema_txt and not Path(schema_txt).expanduser().is_file():

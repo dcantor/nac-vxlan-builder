@@ -74,3 +74,67 @@ def test_settings_and_rule_dirs(tmp_path, monkeypatch):
     save_settings(Settings(schema_path="/x.yaml", rules_path=str(RULES)), cfg)
     assert load_settings(cfg) == Settings(schema_path="/x.yaml", rules_path=str(RULES))
     assert load_settings(tmp_path / "missing.json") == Settings()
+
+
+# --- Cisco rules: macOS only ---------------------------------------------------------------
+def test_rules_only_on_macos(tmp_path, monkeypatch):
+    from nacbuilder.settings import Settings, is_windows, resolve_rules, rules_supported
+
+    coll = tmp_path / "ansible_collections/cisco/nac_dc_vxlan/roles/validate/files/rules"
+    (coll / "common").mkdir(parents=True)
+    monkeypatch.setenv("ANSIBLE_COLLECTIONS_PATH", str(tmp_path))
+    assert rules_supported("darwin") and not rules_supported("win32") and not rules_supported("linux")
+    assert is_windows("win32") and is_windows("cygwin") and not is_windows("darwin")
+    assert [d.name for d in resolve_rules(Settings(), platform="darwin")] == ["common"]
+    assert resolve_rules(Settings(), platform="win32") == []
+    assert resolve_rules(Settings(rules_path=str(coll)), platform="win32") == []
+
+
+def test_collection_version(tmp_path):
+    import json
+
+    from nacbuilder.settings import collection_version
+
+    root = tmp_path / "ansible_collections/cisco/nac_dc_vxlan"
+    rules = root / "roles/validate/files/rules"
+    rules.mkdir(parents=True)
+    (root / "MANIFEST.json").write_text(json.dumps({"collection_info": {"version": "0.9.1"}}))
+    assert collection_version(rules) == "0.9.1"
+    assert collection_version(tmp_path / "nope/a/b/c/d") is None
+
+
+def test_install_cisco_rules(monkeypatch, tmp_path):
+    import subprocess
+
+    import nacbuilder.settings as settings
+
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr(settings.subprocess, "run", fake_run)
+    monkeypatch.setattr(settings, "find_collection_rules", lambda: tmp_path)
+    monkeypatch.setattr(settings.sys, "platform", "darwin")
+    res = settings.install_cisco_rules()
+    assert res.ok
+    assert calls[0][1:] == ["-m", "pip", "install", settings.ANSIBLE_SPEC]
+    assert calls[1][0].endswith("ansible-galaxy") and calls[1][1:] == ["collection", "install", "cisco.nac_dc_vxlan"]
+
+    calls.clear()
+    monkeypatch.setattr(settings.sys, "platform", "win32")
+    res = settings.install_cisco_rules()
+    assert not res.ok and calls == [] and "macOS" in res.log
+
+
+def test_install_reports_failure(monkeypatch):
+    import subprocess
+
+    import nacbuilder.settings as settings
+
+    monkeypatch.setattr(settings.sys, "platform", "darwin")
+    monkeypatch.setattr(settings.subprocess, "run",
+                        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1, stdout="", stderr="network down"))
+    res = settings.install_cisco_rules()
+    assert not res.ok and "network down" in res.log

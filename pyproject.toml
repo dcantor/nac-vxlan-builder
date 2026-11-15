@@ -19,6 +19,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+# Cisco's semantic rules (macOS): the app can also install these from Review & export
+rules = ["ansible-core>=2.14,<2.19"]
 
 [tool.setuptools.packages.find]
 include = ["nacbuilder*"]

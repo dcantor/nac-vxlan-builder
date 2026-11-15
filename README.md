@@ -183,12 +183,19 @@ Key names for these sections follow Cisco's `cisco.nac_dc_vxlan` 0.9.1 templates
   or attach groups, vPC and interface conflicts, VRF-lite references, overlapping IP pools,
   and the design standard.
 - **Validation:** **Run nac-validate** checks the files against `schema/schema.yaml` (extended
-  to cover vPC, interfaces and VRF-lite). Under **Validation settings** you can also run
-  Cisco's semantic rules, which are auto-detected from an installed `cisco.nac_dc_vxlan`
-  collection (`ansible-galaxy collection install cisco.nac_dc_vxlan`). You can also point it
-  at a full schema file, such as the one your repo's `DC_VXLAN_SCHEMA` uses. The rules are
-  Python code that runs on your machine, so only use a folder you trust. Settings are saved
-  in `~/.nac-vxlan-builder.json`.
+  to cover vPC, interfaces and VRF-lite). Under **Validation settings** you can point it at a
+  full schema file, such as the one your repo's `DC_VXLAN_SCHEMA` uses. Settings are saved in
+  `~/.nac-vxlan-builder.json`.
+- **Cisco's semantic rules (macOS only):** these come with the `cisco.nac_dc_vxlan` Ansible collection.
+  - **Install:** on macOS, **Install Cisco's rules** adds `ansible-core` to the app's environment
+    and the collection to `~/.ansible/collections` (about 100 MB, from PyPI and Ansible Galaxy).
+    Or do it yourself with `pip install -e ".[rules]"` and
+    `ansible-galaxy collection install cisco.nac_dc_vxlan`.
+  - **Running them:** once installed, Validate runs the collection's `common`, `common_vxlan` and
+    `ibgp_vxlan` rule sets as well. They're Python code that runs on your Mac.
+  - **Windows and Linux:** Ansible doesn't run on Windows, so the app detects that and hides the
+    rules and the install button entirely. The same applies on Linux. Validation then uses the
+    schema only.
 - **Changes:** before anything is written you see what changes compared with the target
   folder: switches, vPC pairs, interfaces, VRFs, networks, attach groups and VRF-lite that
   are added, removed or changed. There's also a line-by-line diff of every file, including

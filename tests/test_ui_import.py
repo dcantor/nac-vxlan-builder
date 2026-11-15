@@ -132,3 +132,24 @@ def test_vpc_csv_replaces_on_page(uploads):
     assert not at.exception
     pairs = at.session_state["project"].vpc_peers
     assert [(v.peer1, v.peer2, v.domain_id, v.fabric_peering) for v in pairs] == [("dc1-leaf1", "dc1-leaf2", 9, True)]
+
+
+@pytest.mark.parametrize("platform, detected, expect_button, expect_text", [
+    ("win32", None, False, "doesn't run on Windows"),
+    ("darwin", None, True, "isn't installed"),
+    ("darwin", "detected", False, "is installed"),
+])
+def test_review_rules_ui_per_platform(platform, detected, expect_button, expect_text, monkeypatch, tmp_path):
+    import nacbuilder.settings as settings
+
+    monkeypatch.setattr(settings.sys, "platform", platform)
+    monkeypatch.setattr(settings, "find_collection_rules", (lambda: tmp_path) if detected else (lambda: None))
+    monkeypatch.setattr(settings, "CONFIG", tmp_path / "cfg.json")
+    at = run_page("review.py", standard_example())
+    assert not at.exception
+    labels = [b.label for b in at.button]
+    assert ("Install Cisco's rules" in labels) is expect_button
+    captions = " ".join(c.value for c in at.caption)
+    assert expect_text in captions, captions
+    if platform == "win32":
+        assert not any(c.label.startswith("Run Cisco's semantic rules") for c in at.checkbox)

@@ -2,6 +2,8 @@
 
 import json
 import os
+import subprocess
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -53,10 +55,70 @@ def rule_dirs(path: Path) -> list[Path]:
     return subs or ([path] if path.is_dir() else [])
 
 
-def resolve_rules(s: Settings) -> list[Path]:
-    if not s.use_rules:
+def resolve_rules(s: Settings, platform: str | None = None) -> list[Path]:
+    if not s.use_rules or not rules_supported(platform):
         return []
     if s.rules_path:
         return rule_dirs(Path(s.rules_path))
     found = find_collection_rules()
     return rule_dirs(found) if found else []
+
+
+# --- platform support for Cisco's rules ------------------------------------------------
+# Cisco's rules come with the cisco.nac_dc_vxlan Ansible collection. Ansible's control node doesn't run
+# natively on Windows, so the rules (and the one-click install) are offered on macOS only.
+ANSIBLE_SPEC = "ansible-core>=2.14,<2.19"
+COLLECTION_NAME = "cisco.nac_dc_vxlan"
+
+
+def is_macos(platform: str | None = None) -> bool:
+    return (platform or sys.platform) == "darwin"
+
+
+def is_windows(platform: str | None = None) -> bool:
+    return (platform or sys.platform).startswith(("win", "cygwin", "msys"))
+
+
+def rules_supported(platform: str | None = None) -> bool:
+    return is_macos(platform)
+
+
+def collection_version(rules: Path | None = None) -> str | None:
+    """Installed cisco.nac_dc_vxlan version, read from its MANIFEST.json."""
+    rules = rules or find_collection_rules()
+    if not rules:
+        return None
+    try:
+        manifest = Path(rules).parents[3] / "MANIFEST.json"
+        return json.loads(manifest.read_text())["collection_info"]["version"]
+    except (OSError, ValueError, KeyError, IndexError):
+        return None
+
+
+@dataclass
+class InstallResult:
+    ok: bool
+    log: str
+
+
+def install_cisco_rules(timeout: int = 900) -> InstallResult:
+    """pip-install ansible-core into this environment, then `ansible-galaxy collection install cisco.nac_dc_vxlan`
+    (into ~/.ansible/collections, where the app looks for it). macOS only."""
+    if not rules_supported():
+        return InstallResult(False, "Cisco's rules are only offered when the app runs on macOS.")
+    steps = [
+        [sys.executable, "-m", "pip", "install", ANSIBLE_SPEC],
+        [str(Path(sys.executable).with_name("ansible-galaxy")), "collection", "install", COLLECTION_NAME],
+    ]
+    log = []
+    for cmd in steps:
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            log.append(f"$ {' '.join(cmd[-3:])}\n{e}")
+            return InstallResult(False, "\n\n".join(log))
+        out = (r.stdout + r.stderr).strip().splitlines()
+        log.append(f"$ {' '.join(Path(cmd[0]).name if i == 0 else c for i, c in enumerate(cmd))}\n" + "\n".join(out[-15:]))
+        if r.returncode != 0:
+            return InstallResult(False, "\n\n".join(log))
+    return InstallResult(find_collection_rules() is not None, "\n\n".join(log))
