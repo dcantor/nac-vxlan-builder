@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from nacbuilder.checks import check_project
 from nacbuilder.models import Project
-from nacbuilder.sample import example_project
+from nacbuilder.sample import standard_example
 from nacbuilder.ui import key, project, set_project, show_flash
 
 st.set_page_config(page_title="NaC VXLAN Builder", page_icon=":material/lan:", layout="wide")
@@ -47,8 +47,8 @@ with st.sidebar:
         except ValidationError as e:
             st.error(f"Not a valid project file: {e.error_count()} problem(s)")
     c1, c2 = st.columns(2)
-    if c1.button("Load example", help="Cisco's ansible-dc-vxlan-example fabric", use_container_width=True):
-        set_project(example_project(), "Loaded the Cisco example fabric")
+    if c1.button("Load example", help="A small fabric that follows the design standard", use_container_width=True):
+        set_project(standard_example(), "Loaded the example fabric")
         st.rerun()
     with c2.popover("New", use_container_width=True):
         st.write("Discard the current project?")

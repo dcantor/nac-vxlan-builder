@@ -2,9 +2,9 @@ import pytest
 from pydantic import ValidationError
 
 from nacbuilder.checks import check_project
-from nacbuilder.defaults import generate_switches, group_all_leafs, next_network, next_vrf
-from nacbuilder.models import Attachment, Fabric, GlobalIbgp, Network, Project, Vrf
-from nacbuilder.sample import example_project
+from nacbuilder.defaults import generate_switches, group_all_leafs, groups_per_border_set, next_network, next_vrf
+from nacbuilder.models import Attachment, Fabric, GlobalIbgp, Network, Project
+from nacbuilder.sample import example_project, standard_example
 
 
 @pytest.mark.parametrize("asn", ["65001", "4294967295", "65000.1"])
@@ -44,8 +44,49 @@ def messages(p):
     return [i.message for i in check_project(p) if i.level == "error"]
 
 
-def test_example_has_no_errors():
-    assert messages(example_project()) == []
+def test_standard_example_is_clean():
+    assert check_project(standard_example()) == []
+
+
+def test_cisco_example_breaks_only_the_design_standard():
+    errs = messages(example_project())
+    assert errs and all(m.startswith("Standard:") for m in errs), errs
+    assert any("4 route reflectors required, found 2" in m for m in errs)
+    assert any("exactly 4 spines" in m for m in errs)
+
+
+def test_standard_requires_ospf_and_four_rrs():
+    p = standard_example()
+    p.ibgp.route_reflectors = 2
+    p.underlay.general.routing_protocol = "is-is"
+    errs = " | ".join(messages(p))
+    assert "4 route reflectors required, found 2" in errs
+    assert "underlay must be OSPF" in errs
+
+
+def test_standard_requires_four_spines():
+    p = standard_example()
+    p.switches = [s for s in p.switches if s.name != "dc1-spine4"]
+    assert any("exactly 4 spines" in m and "found 3" in m for m in messages(p))
+    p = standard_example()
+    p.switches[0].role = "border_spine"
+    assert any("dc1-spine1 must have role spine" in m for m in messages(p))
+
+
+def test_standard_requires_three_border_pairs():
+    p = standard_example()
+    p.switches = [s for s in p.switches if s.name != "dc1-border-external2"]
+    assert any("external border set needs 2 switches, found 1" in m for m in messages(p))
+
+    p = standard_example()
+    p.switches[-1].border_set = None  # border with no set
+    assert any("must be in a border set" in m for m in messages(p))
+
+    p = standard_example()
+    p.switches[4].border_set = "client"  # a leaf in a border set
+    errs = " | ".join(messages(p))
+    assert "its role must be border" in errs
+    assert "client border set needs 2 switches, found 3" in errs
 
 
 def test_reference_and_duplicate_errors():
@@ -59,28 +100,54 @@ def test_reference_and_duplicate_errors():
     assert "VNI 150001 is used by both" in errs
 
 
-def test_route_reflectors_need_spines():
-    p = example_project()
-    p.ibgp.route_reflectors = 4
-    assert any("4 route reflectors" in m for m in messages(p))
-
-
 def test_underlay_range_overlap():
     p = example_project()
     p.underlay.ipv4.underlay_vtep_loopback_ip_range = "10.0.0.0/24"
     assert any("overlaps" in m for m in messages(p))
 
 
+def test_generate_switches_follows_standard():
+    sw = generate_switches("dc1", 2, "192.0.2.11", "192.0.2.1", 24)
+    assert [(s.name, s.role, s.border_set) for s in sw] == [
+        ("dc1-spine1", "spine", None),
+        ("dc1-spine2", "spine", None),
+        ("dc1-spine3", "spine", None),
+        ("dc1-spine4", "spine", None),
+        ("dc1-leaf1", "leaf", None),
+        ("dc1-leaf2", "leaf", None),
+        ("dc1-border-client1", "border", "client"),
+        ("dc1-border-client2", "border", "client"),
+        ("dc1-border-internal1", "border", "internal"),
+        ("dc1-border-internal2", "border", "internal"),
+        ("dc1-border-external1", "border", "external"),
+        ("dc1-border-external2", "border", "external"),
+    ]
+    assert str(sw[-1].management.management_ipv4_address) == "192.0.2.22"
+
+
+def test_border_groups_and_all_group_exclude_borders():
+    p = standard_example()
+    assert {a.hostname for a in group_all_leafs(p)} == {f"dc1-leaf{i}" for i in range(1, 5)}
+    groups = {}
+    for a in groups_per_border_set(p):
+        groups.setdefault(a.group, []).append(a.hostname)
+    assert groups == {
+        "border-client": ["dc1-border-client1", "dc1-border-client2"],
+        "border-internal": ["dc1-border-internal1", "dc1-border-internal2"],
+        "border-external": ["dc1-border-external1", "dc1-border-external2"],
+    }
+
+
 def test_defaults_build_a_clean_fabric():
-    p = Project(switches=generate_switches("dc1", 2, 4, 0, "192.0.2.11", "192.0.2.1", 24))
+    p = Project(switches=generate_switches("dc1", 4, "192.0.2.11", "192.0.2.1", 24))
     p.attachments = group_all_leafs(p)
     p.vrfs = [next_vrf(p)]
     p.vrfs.append(next_vrf(p))
     p.networks = [next_network(p)]
     p.networks.append(next_network(p))
-    for s, sn in zip(p.switches, "ABCDEF"):
-        s.serial_number = f"FDO{sn}"
-    assert [s.name for s in p.switches][:3] == ["dc1-spine1", "dc1-spine2", "dc1-leaf1"]
+    for i, s in enumerate(p.switches):
+        s.serial_number = f"FDO{i:04d}"
+    assert [s.name for s in p.switches][:5] == ["dc1-spine1", "dc1-spine2", "dc1-spine3", "dc1-spine4", "dc1-leaf1"]
     assert [(v.vrf_id, v.vlan_id, v.vrf_attach_group) for v in p.vrfs] == [(50001, 2000, "all"), (50002, 2001, "all")]
     assert [(n.net_id, n.vlan_id, n.vrf_name) for n in p.networks] == [(30001, 2300, "VRF01"), (30002, 2301, "VRF01")]
     assert check_project(p) == []

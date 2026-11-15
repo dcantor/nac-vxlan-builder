@@ -6,6 +6,7 @@ from ipaddress import IPv4Interface
 from itertools import combinations
 from typing import Literal
 
+from . import standards as std
 from .models import ATTACHABLE_ROLES, SPINE_ROLES, Project
 
 
@@ -61,8 +62,37 @@ def check_project(p: Project) -> list[Issue]:
         if m.default_gateway_v4 == m.management_ipv4_address:
             err("Switches", f"{s.name}: management IP equals its gateway.")
 
-    if spines and p.ibgp.route_reflectors > len(spines):
-        err("Fabric", f"{p.ibgp.route_reflectors} route reflectors requested but only {len(spines)} spine(s).")
+    # --- design standard (standards.py) ---------------------------------------
+    if p.fabric.type != std.FABRIC_TYPE:
+        err("Fabric", f"Standard: the overlay must be BGP EVPN ({std.FABRIC_TYPE} with iBGP).")
+    if p.ibgp.route_reflectors != std.ROUTE_REFLECTORS:
+        err("Fabric", f"Standard: {std.ROUTE_REFLECTORS} route reflectors required, found {p.ibgp.route_reflectors}.")
+    if p.underlay.general.routing_protocol != std.UNDERLAY_PROTOCOL:
+        err("Underlay", f"Standard: the underlay must be OSPF, found {p.underlay.general.routing_protocol}.")
+    if sw:
+        if len(spines) != std.SPINE_COUNT:
+            err(
+                "Switches",
+                f"Standard: exactly {std.SPINE_COUNT} spines (all route reflectors) required, found {len(spines)}.",
+            )
+        for s in spines:
+            if s.role != "spine":
+                err("Switches", f"Standard: {s.name} must have role spine, not {s.role}.")
+        for key_, label in std.BORDER_SETS.items():
+            members = [s.name for s in sw if s.border_set == key_]
+            if len(members) != std.BORDERS_PER_SET:
+                err(
+                    "Switches",
+                    f"Standard: the {label.lower()} border set needs {std.BORDERS_PER_SET} switches, "
+                    f"found {len(members)}{': ' + ', '.join(members) if members else ''}.",
+                )
+        for s in sw:
+            if s.border_set and s.role != "border":
+                err("Switches", f"Standard: {s.name} is in the {s.border_set} border set, so its role must be border.")
+            elif s.role == "border" and not s.border_set:
+                err("Switches", f"Standard: border {s.name} must be in a border set (client, internal or external).")
+            elif "border" in s.role and s.role != "border" and s.role not in SPINE_ROLES:
+                err("Switches", f"Standard: role {s.role} on {s.name} isn't part of the design; use border.")
 
     # --- underlay -------------------------------------------------------------
     u = p.underlay

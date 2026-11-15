@@ -1,6 +1,7 @@
 import streamlit as st
 from pydantic import ValidationError
 
+from nacbuilder import standards as std
 from nacbuilder.models import Underlay, UnderlayGeneral, UnderlayIpv4, UnderlayMulticast, UnderlayOspf
 from nacbuilder.ui import fmt_errors, project, save, section_issues, show_errors
 
@@ -18,8 +19,7 @@ def idx(options, value):
 with st.form("underlay"):
     st.subheader("General", divider="gray")
     c1, c2, c3 = st.columns(3)
-    protos = ["ospf", "is-is"]
-    proto = c1.selectbox("Routing protocol", protos, index=idx(protos, g.routing_protocol))
+    c1.text_input("Routing protocol", "OSPF", disabled=True, help="Fixed by the design standard.")
     reps = ["multicast", "ingress"]
     rep = c2.selectbox("BUM replication", reps, index=idx(reps, g.replication_mode), help="Multicast needs RPs on the spines; ingress uses head-end replication.")
     tag = c3.text_input("Routing protocol tag", g.underlay_routing_protocol_tag)
@@ -42,7 +42,6 @@ with st.form("underlay"):
     rp_range = c2.text_input("RP loopback range (multicast only)", str(v4.underlay_rp_loopback_ip_range))
 
     st.subheader("OSPF", divider="gray")
-    st.caption("Used only when the routing protocol is OSPF.")
     c1, c2, c3, c4 = st.columns(4)
     area = c1.text_input("Area ID", ospf.area_id)
     auth = c2.checkbox("Authentication", ospf.authentication_enable)
@@ -64,7 +63,7 @@ if submitted:
     try:
         new = Underlay(
             general=UnderlayGeneral(
-                routing_protocol=proto,
+                routing_protocol=std.UNDERLAY_PROTOCOL,
                 replication_mode=rep,
                 underlay_routing_protocol_tag=tag,
                 underlay_routing_loopback_id=lo_rt,

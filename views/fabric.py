@@ -1,6 +1,7 @@
 import streamlit as st
 from pydantic import ValidationError
 
+from nacbuilder import standards as std
 from nacbuilder.models import Fabric, GlobalIbgp, ManagementServer, SyslogServer
 from nacbuilder.ui import build_rows, fmt_errors, frame, key, project, records, save, section_issues, show_errors
 
@@ -9,6 +10,11 @@ g = p.ibgp
 
 st.title("Fabric")
 st.caption("Basic settings for an iBGP VXLAN EVPN fabric (Nexus Dashboard 4.2) → `global.nac.yaml`")
+st.info(
+    f"**Design standard:** BGP EVPN overlay · OSPF underlay · {std.SPINE_COUNT} spines, all route reflectors · "
+    f"{len(std.BORDER_SETS)} border pairs ({', '.join(std.BORDER_SETS)})",
+    icon=":material/verified:",
+)
 
 SRV = {"ip_address": "string", "vrf": "string"}
 SYS = {"ip_address": "string", "vrf": "string", "severity": "Int64"}
@@ -26,9 +32,19 @@ def servers(items):
 with st.form("fabric"):
     c1, c2 = st.columns(2)
     name = c1.text_input("Fabric name", p.fabric.name, help="Also the host_vars folder name. Letter first; letters, digits, _ and -.")
-    c2.text_input("Fabric type", "VXLAN_EVPN (iBGP EVPN)", disabled=True, help="Other fabric types come later.")
+    c2.text_input(
+        "Fabric type / overlay",
+        f"{std.FABRIC_TYPE}: BGP EVPN overlay (iBGP)",
+        disabled=True,
+        help="Fixed by the design standard.",
+    )
     asn = c1.text_input("BGP ASN", g.bgp_asn, help="Plain (65001) or asdot (65000.1).")
-    rr = c2.selectbox("Route reflectors", [2, 4], index=[2, 4].index(g.route_reflectors), help="How many spines act as BGP route reflectors.")
+    c2.text_input(
+        "Route reflectors",
+        f"{std.ROUTE_REFLECTORS} (all {std.SPINE_COUNT} spines)",
+        disabled=True,
+        help="Fixed by the design standard: every spine is a BGP EVPN route reflector.",
+    )
     mac = c1.text_input("Anycast gateway MAC", g.anycast_gateway_mac, help="Shared by every leaf's SVI gateways.")
     modes = ["cli", "config-profile"]
     om = c2.selectbox("Overlay mode", modes, index=modes.index(g.overlay_mode or "cli"))
@@ -62,13 +78,13 @@ if submitted:
     syslog, e3 = build_rows(records(sys_df), lambda r: SyslogServer(**r), "Syslog")
     errors += e1 + e2 + e3
     try:
-        fabric = Fabric(name=name, type="VXLAN_EVPN")
+        fabric = Fabric(name=name, type=std.FABRIC_TYPE)
     except ValidationError as e:
         errors += fmt_errors(e, "Fabric ")
     try:
         ibgp = GlobalIbgp(
             bgp_asn=asn,
-            route_reflectors=rr,
+            route_reflectors=std.ROUTE_REFLECTORS,
             anycast_gateway_mac=mac,
             overlay_mode=om,
             greenfield_cleanup=None if gc == "(not set)" else gc,

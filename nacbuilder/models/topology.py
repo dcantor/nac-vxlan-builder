@@ -5,6 +5,7 @@ from typing import Literal, Optional
 
 from pydantic import Field
 
+from ..standards import BORDER_SETS
 from .base import NacModel
 
 ROLES = (
@@ -46,3 +47,10 @@ class Switch(NacModel):
     serial_number: Optional[str] = Field(None, pattern=SERIAL_RE)
     role: Literal[ROLES] = "leaf"
     management: Optional[Management] = None
+    # App-only: which border pair this switch belongs to (see standards.py). Not in the NaC schema.
+    border_set: Optional[Literal[tuple(BORDER_SETS)]] = None
+
+    def to_nac(self) -> dict:
+        d = super().to_nac()
+        d.pop("border_set", None)
+        return d

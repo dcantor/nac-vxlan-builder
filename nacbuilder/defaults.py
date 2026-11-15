@@ -6,28 +6,38 @@ L2 VNI 30000-49000, VRF VLANs 2000-2299, network VLANs 2300-2999.
 
 from ipaddress import IPv4Address
 
-from .models import ATTACHABLE_ROLES, Attachment, Management, Network, Project, Switch, Vrf
+from . import standards as std
+from .models import Attachment, Management, Network, Project, Switch, Vrf
+
+LEAF_ROLES = {"leaf", "tor"}
 
 
 def generate_switches(
     prefix: str,
-    spines: int,
     leafs: int,
-    borders: int = 0,
     first_mgmt_ip: str | None = None,
     gateway: str | None = None,
     mask: int | None = None,
 ) -> list[Switch]:
+    """A standard fabric: 4 spines, `leafs` leafs, then the client/internal/external border pairs.
+
+    Names: <prefix>-spine1..4, <prefix>-leaf1..N, <prefix>-border-client1..2, -border-internal1..2,
+    -border-external1..2. Management IPs are handed out in that order.
+    """
+    plan: list[tuple[str, str, str | None]] = [(f"spine{i}", "spine", None) for i in range(1, std.SPINE_COUNT + 1)]
+    plan += [(f"leaf{i}", "leaf", None) for i in range(1, leafs + 1)]
+    for bset in std.BORDER_SETS:
+        plan += [(f"border-{bset}{i}", "border", bset) for i in range(1, std.BORDERS_PER_SET + 1)]
+
     ip = IPv4Address(first_mgmt_ip) if first_mgmt_ip else None
     out = []
-    for role, count in (("spine", spines), ("leaf", leafs), ("border", borders)):
-        for i in range(1, count + 1):
-            mgmt = None
-            if ip or gateway or mask:
-                mgmt = Management(management_ipv4_address=ip, default_gateway_v4=gateway or None, subnet_mask_ipv4=mask)
-            out.append(Switch(name=f"{prefix}-{role}{i}", role=role, management=mgmt))
-            if ip:
-                ip += 1
+    for suffix, role, bset in plan:
+        mgmt = None
+        if ip or gateway or mask:
+            mgmt = Management(management_ipv4_address=ip, default_gateway_v4=gateway or None, subnet_mask_ipv4=mask)
+        out.append(Switch(name=f"{prefix}-{suffix}", role=role, border_set=bset, management=mgmt))
+        if ip:
+            ip += 1
     return out
 
 
@@ -83,15 +93,26 @@ def next_network(p: Project) -> Network:
 
 
 def _leafs(p: Project) -> list[Switch]:
-    return [s for s in p.switches if s.role in ATTACHABLE_ROLES]
+    return [s for s in p.switches if s.role in LEAF_ROLES]
 
 
 def group_all_leafs(p: Project, name: str = "all", ports: list[str] | None = None) -> list[Attachment]:
+    """Every leaf (borders are not included; use groups_per_border_set for them)."""
     return [Attachment(group=name, hostname=s.name, ports=ports or []) for s in _leafs(p)]
 
 
 def groups_per_leaf(p: Project, ports: list[str] | None = None) -> list[Attachment]:
     return [Attachment(group=s.name, hostname=s.name, ports=ports or []) for s in _leafs(p)]
+
+
+def groups_per_border_set(p: Project, ports: list[str] | None = None) -> list[Attachment]:
+    """One group per border pair: border-client, border-internal, border-external."""
+    return [
+        Attachment(group=f"border-{s.border_set}", hostname=s.name, ports=ports or [])
+        for bset in std.BORDER_SETS
+        for s in p.switches
+        if s.border_set == bset
+    ]
 
 
 def merge_attachments(existing: list[Attachment], new: list[Attachment]) -> list[Attachment]:

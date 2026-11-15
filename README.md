@@ -35,7 +35,7 @@ streamlit run app.py
 
 Work through the pages in order: **Fabric → Switches → Underlay → Attach groups → VRFs →
 Networks → Review & export**. Each page has a **Save** button; nothing is kept until you save.
-Use **Load example** in the sidebar to explore with Cisco's sample fabric, and
+Use **Load example** in the sidebar to explore with a sample fabric that follows the design standard, and
 **Save project (.json)** to come back to a fabric later.
 
 On **Review & export** you can:
@@ -46,6 +46,24 @@ On **Review & export** you can:
 - download a zip, or write the files straight into your NaC repo's `host_vars/<fabric>/`.
 
 Then deploy from the NaC repo as usual, e.g. `ansible-playbook -i inventory.yaml vxlan.yaml`.
+
+## Design standard
+
+Every fabric must follow the house standard in `nacbuilder/standards.py`. The UI locks
+these fields, and the checks flag anything that breaks them as an error:
+
+- **Overlay:** BGP EVPN (iBGP `VXLAN_EVPN` fabric).
+- **Underlay:** OSPF.
+- **Spines:** exactly 4 spines with role `spine`. All 4 are route reflectors (`route_reflectors: 4`).
+- **Borders:** three pairs with role `border`: **client**, **internal** and **external**.
+  Set each border's pair in the Switches table's *Border set* column. The NaC schema has
+  no field for this, so the pair is stored in the project file but not written to the YAML.
+
+**Quick generate** on the Switches page builds this layout for you:
+`<prefix>-spine1..4`, `<prefix>-leaf1..N`, `<prefix>-border-client1..2`,
+`-border-internal1..2` and `-border-external1..2`. On the Attach groups page,
+**+ border groups** creates `border-client`, `border-internal` and `border-external`.
+The `all` group contains leafs only.
 
 ## Scope (v1)
 

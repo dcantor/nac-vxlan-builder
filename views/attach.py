@@ -3,7 +3,7 @@ import re
 import streamlit as st
 from pydantic import ValidationError
 
-from nacbuilder.defaults import group_all_leafs, groups_per_leaf, merge_attachments
+from nacbuilder.defaults import group_all_leafs, groups_per_border_set, groups_per_leaf, merge_attachments
 from nacbuilder.models import Attachment
 from nacbuilder.ui import build_rows, fmt_errors, frame, key, project, records, save, section_issues, show_errors
 
@@ -19,14 +19,22 @@ if not p.switches:
     st.info("Add switches first.", icon=":material/info:")
 
 with st.form("quick_groups"):
-    c1, c2, c3 = st.columns([2, 1, 1], vertical_alignment="bottom")
-    ports_txt = c1.text_input("Access ports for quick groups (optional)", placeholder="Ethernet1/13, Ethernet1/14")
-    add_all = c2.form_submit_button("+ 'all' group", use_container_width=True, help="One group named 'all' with every leaf/border")
-    add_each = c3.form_submit_button("+ group per leaf", use_container_width=True, help="One group per leaf, named after the switch")
-if add_all or add_each:
+    ports_txt = st.text_input("Access ports for quick groups (optional)", placeholder="Ethernet1/13, Ethernet1/14")
+    c1, c2, c3 = st.columns(3)
+    add_all = c1.form_submit_button("+ 'all' group", use_container_width=True, help="One group named 'all' with every leaf (no borders)")
+    add_each = c2.form_submit_button("+ group per leaf", use_container_width=True, help="One group per leaf, named after the switch")
+    add_border = c3.form_submit_button(
+        "+ border groups", use_container_width=True, help="border-client, border-internal and border-external, one per border pair"
+    )
+if add_all or add_each or add_border:
     try:
         ports = [x for x in re.split(r"[,\s]+", ports_txt) if x]
-        new = group_all_leafs(p, ports=ports) if add_all else groups_per_leaf(p, ports=ports)
+        if add_all:
+            new = group_all_leafs(p, ports=ports)
+        elif add_each:
+            new = groups_per_leaf(p, ports=ports)
+        else:
+            new = groups_per_border_set(p, ports=ports)
         save(f"Added {len(new)} attachment(s)", attachments=merge_attachments(p.attachments, new))
     except ValidationError as e:
         show_errors(fmt_errors(e))

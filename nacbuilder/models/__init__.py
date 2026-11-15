@@ -11,7 +11,9 @@ class Project(NacModel):
     """Everything the wizard collects for one fabric. Saved/loaded as JSON."""
 
     fabric: Fabric = Field(default_factory=lambda: Fabric(name="fabric1"))
-    ibgp: GlobalIbgp = Field(default_factory=lambda: GlobalIbgp(bgp_asn="65001", overlay_mode="cli"))
+    ibgp: GlobalIbgp = Field(
+        default_factory=lambda: GlobalIbgp(bgp_asn="65001", route_reflectors=4, overlay_mode="cli")
+    )
     switches: list[Switch] = Field(default_factory=list)
     underlay: Underlay = Field(default_factory=Underlay)
     vrfs: list[Vrf] = Field(default_factory=list)

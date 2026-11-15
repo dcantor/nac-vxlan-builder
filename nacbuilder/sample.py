@@ -1,4 +1,9 @@
-"""The fabric from Cisco's ansible-dc-vxlan-example repo (tag 0.9.1), as a Project."""
+"""Sample fabrics.
+
+- `example_project()`: Cisco's ansible-dc-vxlan-example (tag 0.9.1) fabric, used as the
+  golden reference for YAML output. It does NOT follow our design standard (2 spines).
+- `standard_example()`: a small fabric that follows standards.py, offered in the UI.
+"""
 
 from .models import (
     Attachment,
@@ -81,3 +86,30 @@ def example_project() -> Project:
             *[Attachment(group=f"leaf{i}", hostname=h) for i, h in enumerate(_LEAFS, 1)],
         ],
     )
+
+
+def standard_example() -> Project:
+    """4 spines (all RRs), 4 leafs, client/internal/external border pairs, OSPF underlay."""
+    from .defaults import generate_switches, group_all_leafs, next_network, next_vrf
+
+    switches = generate_switches("dc1", 4, "10.10.0.11", "10.10.0.1", 24)
+    for i, s in enumerate(switches, 1):
+        s.serial_number = f"FDO24{i:05d}"
+    p = Project(
+        fabric=Fabric(name="dc1", type="VXLAN_EVPN"),
+        ibgp=GlobalIbgp(
+            bgp_asn="65001",
+            route_reflectors=4,
+            overlay_mode="cli",
+            dns_servers=[ManagementServer(ip_address="10.10.0.53")],
+            ntp_servers=[ManagementServer(ip_address="10.10.0.123")],
+        ),
+        switches=switches,
+        underlay=Underlay(multicast=UnderlayMulticast(rendezvous_points=4)),
+    )
+    p.attachments = group_all_leafs(p, ports=["Ethernet1/10"])
+    p.vrfs = [next_vrf(p)]
+    net = next_network(p)
+    net.gw_ip_address = "172.16.10.1/24"
+    p.networks = [net]
+    return p
