@@ -161,6 +161,29 @@ The Switches, vPC pairs, Interfaces, VRFs and Networks pages each have an **Impo
 Headers are case-insensitive (`Border Set` works). Blank cells mean "not set", and booleans
 accept `true/yes/y/1/x`. To export a table, use the download icon on the table's toolbar.
 
+### Hardware: Nexus 9300 models
+
+Each switch can have a Nexus 9300 model. On the Switches page, pick one per role under
+**Hardware** (spine, super spine, leaf, border, or core/edge router for a Non-VXLAN design) and
+click **Apply**, or set it per switch in the **Model** column. Quick generate, onboarding and CSV
+imports use these picks too.
+
+The port numbering follows the model:
+
+| Where | From the model |
+|---|---|
+| vPC pairing and onboarding | Peer link = the last two uplink ports (Ethernet1/53-54 on a 48+6 leaf, 1/59-60 on a 48+12) |
+| Cabling plan | Leaf/border uplinks = the first uplink ports, one per spine. Spine ports in order per leaf. Super spine uplinks = the spine's last ports. Each port's speed is in the Ports sheet, and a spine that runs out of ports is flagged |
+| VRF-lite | Default uplink = the border model's last host port |
+| Interfaces page | The switch's port layout and its free host ports |
+| Checks | Interfaces, port-channel members, peer links and VRF-lite ports must exist on the model (breakouts like Ethernet1/49/1 only on 40G+ ports). Mixed-speed members, mismatched peer-link speeds and different-model vPC peers get warnings |
+
+The catalog is [`nacbuilder/data/nexus9300.yaml`](nacbuilder/data/nexus9300.yaml): 17 models with
+their port groups (speed, media), roles, and host, uplink and spine port ranges. The layouts come
+from Cisco's data sheets; check yours and edit or extend the file as needed. Models are kept in
+the project file, not the YAML (NaC only uses a model for preprovisioning). When an imported
+switch has `poap.preprovision.model`, that model is picked up.
+
 ### vPC pairs, interfaces and VRF-lite
 
 - **vPC pairs:** **Pair automatically** pairs each border set, then the leafs in name order
@@ -284,6 +307,7 @@ nacbuilder/diagram.py   topology SVG
 nacbuilder/tasks.py     day-2 tasks (new tenant, onboard leaf pair, decommission)
 nacbuilder/history.py   snapshots and undo/redo
 nacbuilder/cabling.py   cabling and port plan, Excel/CSV export
+nacbuilder/hardware.py  Nexus 9300 catalog (data/nexus9300.yaml) and per-model port defaults
 tests/golden/       Cisco's example files, used as expected output
 ```
 

@@ -203,6 +203,9 @@ def test_zip_export_imports_back():
     assert res.errors == []
     q = res.project
     q.preserved = p.preserved
+    # Hardware models are app-only (not in the YAML), so they don't survive a YAML round trip.
+    assert all(s.model is None for s in q.switches)
+    p.switches = [s.model_copy(update={"model": None}) for s in p.switches]
     assert q == p
 
 

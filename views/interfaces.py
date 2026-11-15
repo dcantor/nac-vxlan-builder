@@ -1,6 +1,7 @@
 import streamlit as st
 from pydantic import ValidationError
 
+from nacbuilder.cabling import canon
 from nacbuilder.defaults import expand_ports, vpc_port_channel
 from nacbuilder.models import MODES, SPINE_ROLES, Interface
 from nacbuilder.models.interfaces import SPEEDS
@@ -103,6 +104,18 @@ csv_import("interfaces", "interfaces", INTERFACE_COLS, interface_from_row, requi
 st.subheader("Table", divider="gray")
 view = st.selectbox("Show", [ALL, *names], key="if_filter")
 shown = p.interfaces if view == ALL else p.interfaces_of(view)
+if view != ALL:
+    spec = p.model_of(view)
+    if spec is None:
+        st.caption(f"{view} has no hardware model, so its ports aren't checked. Set one on the Switches page.")
+    else:
+        used = {canon(i.name.split(".")[0]) for i in shown if not i.is_port_channel} | {canon(m) for i in shown for m in i.members}
+        pair = p.vpc_peer_of(view)
+        if pair:
+            used |= {canon(x) for x in (pair.peer1_peerlink_interfaces if pair.peer1 == view else pair.peer2_peerlink_interfaces)}
+        free_host = [x for x in spec.host_ports() if canon(x) not in used]
+        st.caption(f"**{spec.model}**: {spec.layout()} · {len(free_host)} of {len(spec.host)} host ports free"
+                   + (f" (next: {', '.join(free_host[:4])}{'…' if len(free_host) > 4 else ''})" if free_host else ""))
 st.caption(TABLE_HELP + (f" New rows default to {view}." if view != ALL else ""))
 with st.form("interfaces"):
     df = st.data_editor(

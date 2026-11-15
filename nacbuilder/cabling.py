@@ -17,7 +17,8 @@ from .defaults import _natural, expand_ports
 from .models import SPINE_ROLES, Project
 
 LINK_COLUMNS = ["type", "a_switch", "a_port", "b_device", "b_port", "detail", "source"]
-PORT_COLUMNS = ["switch", "port", "use", "port_channel", "vpc_id", "mode", "vlans", "ip_vrf", "description", "connects_to"]
+PORT_COLUMNS = ["switch", "port", "speed", "use", "port_channel", "vpc_id", "mode", "vlans", "ip_vrf", "description",
+                "connects_to"]
 
 
 def canon(port: str) -> str:
@@ -34,6 +35,7 @@ class UplinkPlan:
     spine_first_port: str = "Ethernet1/1"  # spine port for the first leaf; the next leaf uses the next port
     spine_uplinks: list[str] = field(default_factory=list)  # super spine layer: ports on every spine, one per super spine
     super_first_port: str = "Ethernet1/1"  # super spine port for the first spine; the next spine uses the next port
+    from_models: bool = False  # use each switch's hardware model for its ports (falls back to the rules above)
 
 
 @dataclass
@@ -74,7 +76,9 @@ def build_cabling(p: Project, uplinks: UplinkPlan | None = None) -> CablingPlan:
         used.setdefault(k, what)
 
     def port_row(switch, port, use, **kw):
-        plan.ports.append({"switch": switch, "port": port, "use": use, **{c: kw.get(c) for c in PORT_COLUMNS[3:]}})
+        spec = p.model_of(switch)
+        plan.ports.append({"switch": switch, "port": port, "speed": spec.speed(port) if spec else None, "use": use,
+                           **{c: kw.get(c) for c in PORT_COLUMNS[4:]}})
 
     # vPC peer links
     for v in p.vpc_peers:
@@ -156,9 +160,20 @@ def build_cabling(p: Project, uplinks: UplinkPlan | None = None) -> CablingPlan:
         if not m:
             raise ValueError(f"spine first port '{uplinks.spine_first_port}' isn't like Ethernet1/1")
         prefix, first = m[1], int(m[2])
+        n_sup = len(supers)
         for li, leaf in enumerate(lower):
-            for si, spine in enumerate(spines[: len(ups)]):
-                lp, sp = ups[si], f"{prefix}{first + li}"
+            lm = p.model_of(leaf) if uplinks.from_models else None
+            leaf_ups = lm.spine_uplinks(len(spines)) if lm and lm.uplink else ups
+            if lm and len(lm.uplink) < len(spines) + 2:
+                plan.conflicts.append(f"{leaf} ({lm.model}) has {len(lm.uplink)} uplink ports; {len(spines)} spines plus "
+                                      "a 2-port peer link need more.")
+            for si, spine in enumerate(spines[: len(leaf_ups)]):
+                sm = p.model_of(spine) if uplinks.from_models else None
+                pool = sm.spine_downlink_ports()[: len(sm.spine) - n_sup] if sm and sm.spine else None
+                if pool is not None and li >= len(pool):
+                    plan.conflicts.append(f"{spine} ({sm.model}) has no free port for {leaf}.")
+                    continue
+                lp, sp = leaf_ups[si], (pool[li] if pool is not None else f"{prefix}{first + li}")
                 plan.links.append({"type": "fabric link (planned)", "a_switch": leaf, "a_port": lp, "b_device": spine,
                                    "b_port": sp, "detail": "spine-leaf link; ND discovers it", "source": "planned"})
                 claim(leaf, lp, "fabric uplink")
@@ -177,8 +192,15 @@ def build_cabling(p: Project, uplinks: UplinkPlan | None = None) -> CablingPlan:
             raise ValueError(f"super spine first port '{uplinks.super_first_port}' isn't like Ethernet1/1")
         prefix, first = m[1], int(m[2])
         for si, spine in enumerate(spines):
-            for ki, sup in enumerate(supers[: len(ups)]):
-                sp_port, su_port = ups[ki], f"{prefix}{first + si}"
+            sm = p.model_of(spine) if uplinks.from_models else None
+            spine_ups = sm.super_uplinks(len(supers)) if sm and sm.spine else ups
+            for ki, sup in enumerate(supers[: len(spine_ups)]):
+                um = p.model_of(sup) if uplinks.from_models else None
+                pool = um.spine_downlink_ports() if um and um.spine else None
+                if pool is not None and si >= len(pool):
+                    plan.conflicts.append(f"{sup} ({um.model}) has no free port for {spine}.")
+                    continue
+                sp_port, su_port = spine_ups[ki], (pool[si] if pool is not None else f"{prefix}{first + si}")
                 plan.links.append({"type": "super spine link (planned)", "a_switch": spine, "a_port": sp_port,
                                    "b_device": sup, "b_port": su_port, "detail": "spine to super spine; ND discovers it",
                                    "source": "planned"})

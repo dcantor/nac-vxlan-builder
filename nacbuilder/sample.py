@@ -92,9 +92,10 @@ def example_project() -> Project:
 
 def standard_example() -> Project:
     """4 spines (all RRs), 4 leafs, client/internal/external border pairs, OSPF underlay."""
+    from . import hardware as hw
     from .defaults import generate_switches, group_all_leafs, next_network, next_vrf, pair_vpc
 
-    switches = generate_switches("dc1", 4, "10.10.0.11", "10.10.0.1", 24)
+    switches = generate_switches("dc1", 4, "10.10.0.11", "10.10.0.1", 24, role_models=hw.suggested())
     for i, s in enumerate(switches, 1):
         s.serial_number = f"FDO24{i:05d}"
     p = Project(

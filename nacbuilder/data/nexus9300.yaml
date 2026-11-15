@@ -1,0 +1,172 @@
+# Cisco Nexus 9300 fixed switches offered by NaC VXLAN Builder.
+#
+# Port layouts are taken from Cisco's Nexus 9300 data sheets. Check a model against its data sheet
+# before relying on it, and edit or extend this file to match your hardware; the app reads it at start.
+#
+#   ports:        every front-panel port group (Ethernet1/<first>-<last>), with speed and media
+#   roles:        which fabric roles the model is offered for (spine covers super spines too)
+#   host_ports:   leaf/border ports for servers, firewalls and VRF-lite uplinks
+#   uplink_ports: leaf/border ports for spine uplinks; the last two are the default vPC peer link
+#   spine_ports:  spine/super spine ports facing the tier below; the last ones are the super spine uplinks
+
+models:
+  # --- leaf / border -------------------------------------------------------------------------
+  - model: N9K-C93180YC-FX
+    description: 48x 1/10/25G SFP28 + 6x 40/100G QSFP28
+    roles: [leaf, border]
+    ports:
+      - {first: 1, last: 48, speed: 25G, media: SFP28}
+      - {first: 49, last: 54, speed: 100G, media: QSFP28}
+    host_ports: 1-48
+    uplink_ports: 49-54
+
+  - model: N9K-C93180YC-FX3
+    description: 48x 1/10/25G SFP28 + 6x 40/100G QSFP28
+    roles: [leaf, border]
+    ports:
+      - {first: 1, last: 48, speed: 25G, media: SFP28}
+      - {first: 49, last: 54, speed: 100G, media: QSFP28}
+    host_ports: 1-48
+    uplink_ports: 49-54
+
+  - model: N9K-C93180YC-EX
+    description: 48x 10/25G SFP28 + 6x 40/100G QSFP28
+    roles: [leaf, border]
+    ports:
+      - {first: 1, last: 48, speed: 25G, media: SFP28}
+      - {first: 49, last: 54, speed: 100G, media: QSFP28}
+    host_ports: 1-48
+    uplink_ports: 49-54
+
+  - model: N9K-C93108TC-FX
+    description: 48x 100M/1/10GBASE-T + 6x 40/100G QSFP28
+    roles: [leaf, border]
+    ports:
+      - {first: 1, last: 48, speed: 10G, media: 10GBASE-T}
+      - {first: 49, last: 54, speed: 100G, media: QSFP28}
+    host_ports: 1-48
+    uplink_ports: 49-54
+
+  - model: N9K-C93108TC-FX3P
+    description: 48x 100M/1/2.5/5/10GBASE-T + 6x 40/100G QSFP28
+    roles: [leaf, border]
+    ports:
+      - {first: 1, last: 48, speed: 10G, media: 10GBASE-T}
+      - {first: 49, last: 54, speed: 100G, media: QSFP28}
+    host_ports: 1-48
+    uplink_ports: 49-54
+
+  - model: N9K-C93240YC-FX2
+    description: 48x 1/10/25G SFP28 + 12x 40/100G QSFP28
+    roles: [leaf, border]
+    ports:
+      - {first: 1, last: 48, speed: 25G, media: SFP28}
+      - {first: 49, last: 60, speed: 100G, media: QSFP28}
+    host_ports: 1-48
+    uplink_ports: 49-60
+
+  - model: N9K-C93360YC-FX2
+    description: 96x 1/10/25G SFP28 + 12x 40/100G QSFP28
+    roles: [leaf, border]
+    ports:
+      - {first: 1, last: 96, speed: 25G, media: SFP28}
+      - {first: 97, last: 108, speed: 100G, media: QSFP28}
+    host_ports: 1-96
+    uplink_ports: 97-108
+
+  - model: N9K-C93216TC-FX2
+    description: 96x 100M/1/10GBASE-T + 12x 40/100G QSFP28
+    roles: [leaf, border]
+    ports:
+      - {first: 1, last: 96, speed: 10G, media: 10GBASE-T}
+      - {first: 97, last: 108, speed: 100G, media: QSFP28}
+    host_ports: 1-96
+    uplink_ports: 97-108
+
+  - model: N9K-C9348GC-FXP
+    description: 48x 100M/1GBASE-T + 4x 1/10/25G SFP28 + 2x 40/100G QSFP28 (management / low-speed leaf)
+    roles: [leaf]
+    ports:
+      - {first: 1, last: 48, speed: 1G, media: 1000BASE-T}
+      - {first: 49, last: 52, speed: 25G, media: SFP28}
+      - {first: 53, last: 54, speed: 100G, media: QSFP28}
+    host_ports: 1-48
+    uplink_ports: 49-54
+
+  - model: N9K-C93600CD-GX
+    description: 28x 10/25/40/50/100G QSFP28 + 8x 400G QSFP-DD
+    roles: [leaf, border, spine]
+    ports:
+      - {first: 1, last: 28, speed: 100G, media: QSFP28}
+      - {first: 29, last: 36, speed: 400G, media: QSFP-DD}
+    host_ports: 1-28
+    uplink_ports: 29-36
+    spine_ports: 1-36
+
+  - model: N9K-C9336C-FX2
+    description: 36x 40/100G QSFP28
+    roles: [leaf, border, spine]
+    ports:
+      - {first: 1, last: 36, speed: 100G, media: QSFP28}
+    host_ports: 1-28
+    uplink_ports: 29-36
+    spine_ports: 1-36
+
+  # --- spine / super spine -------------------------------------------------------------------------
+  - model: N9K-C9364C
+    description: 64x 40/100G QSFP28 + 2x 1/10G SFP+
+    roles: [spine]
+    ports:
+      - {first: 1, last: 64, speed: 100G, media: QSFP28}
+      - {first: 65, last: 66, speed: 10G, media: SFP+}
+    spine_ports: 1-64
+
+  - model: N9K-C9332C
+    description: 32x 40/100G QSFP28 + 2x 1/10G SFP+
+    roles: [spine]
+    ports:
+      - {first: 1, last: 32, speed: 100G, media: QSFP28}
+      - {first: 33, last: 34, speed: 10G, media: SFP+}
+    spine_ports: 1-32
+
+  - model: N9K-C9316D-GX
+    description: 16x 400G QSFP-DD
+    roles: [spine]
+    ports:
+      - {first: 1, last: 16, speed: 400G, media: QSFP-DD}
+    spine_ports: 1-16
+
+  - model: N9K-C9332D-GX2B
+    description: 32x 400G QSFP-DD + 2x 1/10G SFP+
+    roles: [spine, leaf, border]
+    ports:
+      - {first: 1, last: 32, speed: 400G, media: QSFP-DD}
+      - {first: 33, last: 34, speed: 10G, media: SFP+}
+    host_ports: 1-24
+    uplink_ports: 25-32
+    spine_ports: 1-32
+
+  - model: N9K-C9348D-GX2A
+    description: 48x 400G QSFP-DD + 2x 1/10G SFP+
+    roles: [spine]
+    ports:
+      - {first: 1, last: 48, speed: 400G, media: QSFP-DD}
+      - {first: 49, last: 50, speed: 10G, media: SFP+}
+    spine_ports: 1-48
+
+  - model: N9K-C9364D-GX2A
+    description: 64x 400G QSFP-DD + 2x 1/10G SFP+
+    roles: [spine]
+    ports:
+      - {first: 1, last: 64, speed: 400G, media: QSFP-DD}
+      - {first: 65, last: 66, speed: 10G, media: SFP+}
+    spine_ports: 1-64
+
+# Suggested model per role (pre-selected on the Switches page; nothing is applied until you click Apply).
+suggested:
+  spine: N9K-C9364C
+  super_spine: N9K-C9364C
+  leaf: N9K-C93180YC-FX
+  border: N9K-C93180YC-FX
+  core_router: N9K-C9336C-FX2
+  edge_router: N9K-C93180YC-FX

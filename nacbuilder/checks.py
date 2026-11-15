@@ -6,6 +6,7 @@ from ipaddress import IPv4Interface
 from itertools import combinations
 from typing import Literal
 
+from . import hardware as hw
 from . import standards as std
 from .models import ATTACHABLE_ROLES, SPINE_ROLES, Project
 
@@ -308,6 +309,47 @@ def check_project(p: Project) -> list[Issue]:
             parent = i.name.split(".")[0].lower()
             if not any(j.switch == i.switch and j.name.lower() == parent and j.mode in ("routed", "routed_po") for j in p.interfaces):
                 warn("Interfaces", f"{i.switch} {i.name}: parent {i.name.split('.')[0]} isn't defined as a routed interface.")
+
+    # --- hardware: ports must exist on each switch's model ------------------------------------
+    specs = {x.name: hw.get(x.model) for x in sw}
+    for x in sw:
+        if x.model and specs[x.name] is None:
+            warn("Switches", f"{x.name}: model {x.model} isn't in the hardware catalog, so its ports aren't checked.")
+        elif x.model and not specs[x.name].offered_for(x.role):
+            warn("Switches", f"{x.name}: {x.model} isn't offered for the {x.role} role in the catalog.")
+
+    def missing(switch: str, port: str) -> str | None:
+        spec = specs.get(switch)
+        if spec is None or spec.has_port(port):
+            return None
+        return f"{switch} {port} doesn't exist on {spec.model} ({spec.layout()})."
+
+    for i in p.interfaces:
+        if i.mode == "loopback" or i.is_port_channel or i.switch not in specs:
+            pass
+        elif msg := missing(i.switch, i.name.split(".")[0]):
+            err("Interfaces", msg)
+        speeds = set()
+        for m in i.members:
+            if msg := missing(i.switch, m):
+                err("Interfaces", msg)
+            elif specs.get(i.switch):
+                speeds.add(specs[i.switch].speed(m))
+        if len(speeds) > 1:
+            warn("Interfaces", f"{i.switch} {i.name}: members mix speeds ({', '.join(sorted(speeds))}).")
+    for v in p.vpc_peers:
+        for peer, ports in ((v.peer1, v.peer1_peerlink_interfaces), (v.peer2, v.peer2_peerlink_interfaces)):
+            for port in ports:
+                if msg := missing(peer, port):
+                    err("vPC", msg)
+        s1, s2 = specs.get(v.peer1), specs.get(v.peer2)
+        if s1 and s2 and v.peer1_peerlink_interfaces and v.peer2_peerlink_interfaces:
+            sp1 = {s1.speed(x) for x in v.peer1_peerlink_interfaces} - {None}
+            sp2 = {s2.speed(x) for x in v.peer2_peerlink_interfaces} - {None}
+            if sp1 and sp2 and sp1 != sp2:
+                warn("vPC", f"vPC {v.peer1}/{v.peer2}: peer-link speeds differ ({', '.join(sorted(sp1))} vs {', '.join(sorted(sp2))}).")
+        if s1 and s2 and s1.model != s2.model:
+            warn("vPC", f"vPC {v.peer1}/{v.peer2}: peers are different models ({s1.model}, {s2.model}).")
 
     # --- VRF-lite ----------------------------------------------------------------
     ifs = {(i.switch, i.name.lower()): i for i in p.interfaces}

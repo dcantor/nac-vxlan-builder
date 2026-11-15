@@ -33,6 +33,7 @@ def generate_switches(
     gateway: str | None = None,
     mask: int | None = None,
     super_spines: int = 0,
+    role_models: dict[str, str] | None = None,
 ) -> list[Switch]:
     """A standard fabric: optional super spines, 4 spines, `leafs` leafs, then the client/internal/external
     border pairs.
@@ -52,7 +53,8 @@ def generate_switches(
         mgmt = None
         if ip or gateway or mask:
             mgmt = Management(management_ipv4_address=ip, default_gateway_v4=gateway or None, subnet_mask_ipv4=mask)
-        out.append(Switch(name=f"{prefix}-{suffix}", role=role, border_set=bset, management=mgmt))
+        out.append(Switch(name=f"{prefix}-{suffix}", role=role, border_set=bset, management=mgmt,
+                          model=(role_models or {}).get(role)))
         if ip:
             ip += 1
     return out
@@ -145,7 +147,8 @@ def _natural(name: str):
 def pair_vpc(p: Project, peerlink_ports: list[str] | None = None, fabric_peering: bool = False) -> list[VpcPeer]:
     """Suggest vPC pairs: each border set, then leafs in name order (leaf1+leaf2, leaf3+leaf4, ...).
 
-    Switches already in a pair are skipped; domain IDs continue after the highest one in use.
+    Switches already in a pair are skipped; domain IDs continue after the highest one in use. With
+    peerlink_ports=None, each switch's peer link comes from its hardware model.
     """
     taken = {x for v in p.vpc_peers for x in (v.peer1, v.peer2)}
     pairs: list[tuple[str, str]] = []
@@ -162,9 +165,15 @@ def pair_vpc(p: Project, peerlink_ports: list[str] | None = None, fabric_peering
     next_id = max([0, *(v.domain_id or 0 for v in p.vpc_peers)]) + 1
     out = []
     for i, (a, b) in enumerate(pairs):
-        links = [] if fabric_peering else (peerlink_ports or [])
+        if fabric_peering:
+            l1 = l2 = []
+        elif peerlink_ports is not None:
+            l1 = l2 = peerlink_ports
+        else:  # from each switch's hardware model (last two uplink ports)
+            m1, m2 = p.model_of(a), p.model_of(b)
+            l1, l2 = (m1.peer_link() if m1 else []), (m2.peer_link() if m2 else [])
         out.append(VpcPeer(peer1=a, peer2=b, domain_id=next_id + i, fabric_peering=fabric_peering or None,
-                           peer1_peerlink_interfaces=links, peer2_peerlink_interfaces=links))
+                           peer1_peerlink_interfaces=l1, peer2_peerlink_interfaces=l2))
     return out
 
 
@@ -287,7 +296,8 @@ def apply_vrf_lite_plan(p: Project, plan: VrfLitePlan) -> Project:
 
 
 def generate_external_switches(prefix: str, core: int, edge: int, first_mgmt_ip: str | None = None,
-                               gateway: str | None = None, mask: int | None = None) -> list[Switch]:
+                               gateway: str | None = None, mask: int | None = None,
+                               role_models: dict[str, str] | None = None) -> list[Switch]:
     """Non-VXLAN design (NaC External fabric): <prefix>-core1..N (core_router), <prefix>-edge1..N (edge_router)."""
     ip = IPv4Address(first_mgmt_ip) if first_mgmt_ip else None
     out = []
@@ -295,7 +305,17 @@ def generate_external_switches(prefix: str, core: int, edge: int, first_mgmt_ip:
         for i in range(1, count + 1):
             mgmt = Management(management_ipv4_address=ip, default_gateway_v4=gateway or None, subnet_mask_ipv4=mask) \
                 if (ip or gateway or mask) else None
-            out.append(Switch(name=f"{prefix}-{suffix}{i}", role=role, management=mgmt))
+            out.append(Switch(name=f"{prefix}-{suffix}{i}", role=role, management=mgmt,
+                              model=(role_models or {}).get(role)))
             if ip:
                 ip += 1
     return out
+
+
+def vrf_lite_uplink(p: Project, bset: str = "external") -> str:
+    """Default VRF-lite uplink: the last host port of the border's model (Ethernet1/48 on a 48+6 leaf)."""
+    for x in sorted((x for x in p.switches if x.border_set == bset), key=lambda x: _natural(x.name)):
+        spec = p.model_of(x.name)
+        if spec and spec.last_host_port():
+            return spec.last_host_port()
+    return "Ethernet1/48"

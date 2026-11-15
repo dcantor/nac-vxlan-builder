@@ -49,8 +49,11 @@ class Switch(NacModel):
     management: Optional[Management] = None
     # App-only: which border pair this switch belongs to (see standards.py). Not in the NaC schema.
     border_set: Optional[Literal[tuple(BORDER_SETS)]] = None
+    # App-only: hardware model from the Nexus 9300 catalog (drives port numbering and port checks).
+    model: Optional[str] = Field(None, max_length=40)
 
     def to_nac(self) -> dict:
         d = super().to_nac()
         d.pop("border_set", None)
+        d.pop("model", None)
         return d

@@ -25,5 +25,8 @@ rules = ["ansible-core>=2.14,<2.19"]
 [tool.setuptools.packages.find]
 include = ["nacbuilder*"]
 
+[tool.setuptools.package-data]
+nacbuilder = ["data/*.yaml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

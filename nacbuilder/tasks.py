@@ -7,6 +7,7 @@ the UI can preview the result (compare_projects + check_project) before applying
 import re
 from dataclasses import dataclass
 
+from . import hardware as hw
 from .defaults import (
     _natural,
     apply_vrf_lite_plan,
@@ -316,8 +317,12 @@ def onboard_leaf_pair(
     fabric_peering: bool = False,
     host_ports: HostPorts | None = None,
     groups: list[str] | None = None,
+    model: str | None = None,
 ) -> Project:
-    """Two leafs as a vPC pair, with optional host vPC port-channels and attach group membership."""
+    """Two leafs as a vPC pair, with optional host vPC port-channels and attach group membership.
+
+    With a hardware `model` and no peerlink_ports, the peer link is the model's (last two uplink ports).
+    """
     q = _copy(p)
     a, b = names
     if a == b:
@@ -328,7 +333,10 @@ def onboard_leaf_pair(
     for name, serial, ip in zip(names, serials, mgmt_ips):
         mgmt = Management(management_ipv4_address=ip or None, subnet_mask_ipv4=mask, default_gateway_v4=gateway or None) \
             if (ip or mask or gateway) else None
-        q.switches.append(Switch(name=name, role="leaf", serial_number=serial or None, management=mgmt))
+        q.switches.append(Switch(name=name, role="leaf", serial_number=serial or None, management=mgmt, model=model))
+    spec = hw.get(model)
+    if peerlink_ports is None and spec:
+        peerlink_ports = spec.peer_link()
     links = [] if fabric_peering else (peerlink_ports or [])
     domain = max([0, *(v.domain_id or 0 for v in q.vpc_peers)]) + 1
     pair = VpcPeer(peer1=a, peer2=b, domain_id=domain, fabric_peering=fabric_peering or None,

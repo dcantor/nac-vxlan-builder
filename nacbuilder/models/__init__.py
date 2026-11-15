@@ -32,6 +32,8 @@ class Project(NacModel):
     standard: Literal["dc", "dmz", "non_vxlan"] = "dc"
     # App-only, DC Fabric only: a super spine layer of 2 or 4 super spines (they become the route reflectors).
     super_spines: Optional[Literal[2, 4]] = None
+    # App-only: hardware model picked per role on the Switches page (used for new switches).
+    role_models: dict[str, str] = Field(default_factory=dict)
 
     @property
     def has_super_spines(self) -> bool:
@@ -43,6 +45,13 @@ class Project(NacModel):
 
     def interfaces_of(self, switch: str) -> list[Interface]:
         return [i for i in self.interfaces if i.switch == switch]
+
+    def model_of(self, switch: str):
+        """The switch's hardware model spec (nacbuilder.hardware.SwitchModel) or None."""
+        from ..hardware import get
+
+        sw = next((s for s in self.switches if s.name == switch), None)
+        return get(sw.model) if sw else None
 
     def vpc_peer_of(self, switch: str) -> VpcPeer | None:
         return next((v for v in self.vpc_peers if switch in (v.peer1, v.peer2)), None)

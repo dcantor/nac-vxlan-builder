@@ -1,7 +1,7 @@
 import streamlit as st
 from pydantic import ValidationError
 
-from nacbuilder.defaults import apply_vrf_lite_plan, build_vrf_lite
+from nacbuilder.defaults import vrf_lite_uplink, apply_vrf_lite_plan, build_vrf_lite
 from nacbuilder.tasks import remove_vrf_lite
 from nacbuilder.ui import fmt_errors, project, save, section_issues, show_errors
 
@@ -30,7 +30,7 @@ else:
                 help="Defaults to the external border pair.",
             )
             c1, c2, c3 = st.columns(3)
-            uplinks = c1.text_input("Uplink port(s) on each switch", "Ethernet1/48",
+            uplinks = c1.text_input("Uplink port(s) on each switch", vrf_lite_uplink(p),
                                     help="Comma separated if a switch has more than one uplink; same ports on every switch")
             dot1q = c2.number_input("dot1q tag (0 = the VRF's VLAN ID)", 0, 4093, 0)
             remote_as = c3.number_input("Neighbor ASN", 1, 4294967295, 65500)

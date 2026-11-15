@@ -201,6 +201,9 @@ def project_from_data(data: dict, default_name: str | None = None) -> ImportResu
             continue
         if sw.role == "border":
             sw.border_set = infer_border_set(sw.name)
+        hw_model = ((extra.get("poap") or {}).get("preprovision") or {}).get("model")
+        if hw_model:  # kept in poap (preserved) and also used for the app's port numbering
+            sw.model = str(hw_model)
         raw_ifs = extra.pop("interfaces", None) or []
         kept_ifs = []
         for iface in raw_ifs:

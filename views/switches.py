@@ -1,6 +1,7 @@
 import streamlit as st
 from pydantic import ValidationError
 
+from nacbuilder import hardware as hw
 from nacbuilder import standards as std
 from nacbuilder.defaults import generate_external_switches, generate_switches
 from nacbuilder.models import ROLES
@@ -32,6 +33,38 @@ COLS = SWITCH_COLS
 to_row = switch_to_row
 from_row = switch_from_row
 
+# --- hardware: a Nexus 9300 model per role -----------------------------------------------
+if S.vxlan:
+    roles = (["super_spine"] if p.has_super_spines else []) + ["spine", "leaf", "border"]
+else:
+    roles = ["core_router", "edge_router"]
+picks_default = {r: p.role_models.get(r) or hw.suggested().get(r) for r in roles}
+with st.expander("Hardware: Nexus 9300 models", expanded=not p.role_models, icon=":material/memory:"):
+    st.caption("Pick a model per role. Port numbering follows it: spine uplinks, vPC peer links, host ports, VRF-lite "
+               "uplinks and the cabling plan, and interfaces are checked against the model's ports. Models are kept "
+               "in the project, not written to the YAML. The catalog is `nacbuilder/data/nexus9300.yaml`.")
+    with st.form("hardware"):
+        picks = {}
+        cols = st.columns(len(roles))
+        for col, role in zip(cols, roles):
+            options = hw.models_for(role)
+            cur = picks_default[role] if picks_default[role] in options else options[0]
+            picks[role] = col.selectbox(role.replace("_", " ").title(), options, index=options.index(cur),
+                                        key=f"hw_{role}")
+            col.caption(hw.get(picks[role]).layout())
+        overwrite = st.checkbox("Also replace models already set on individual switches", value=False)
+        apply = st.form_submit_button("Apply to switches", type="primary")
+    if apply:
+        changed = 0
+        new_sw = []
+        for sw in p.switches:
+            want = picks.get(sw.role)
+            if want and (overwrite or not sw.model) and sw.model != want:
+                sw = sw.model_copy(update={"model": want})
+                changed += 1
+            new_sw.append(sw)
+        save(f"Hardware saved; {changed} switch(es) updated", switches=new_sw, role_models={**p.role_models, **picks})
+
 with st.expander("Quick generate", expanded=not p.switches, icon=":material/bolt:"):
     if S.vxlan:
         layer = (f"{p.super_spines} super spines (route reflectors), {S.spine_count} spines"
@@ -59,9 +92,11 @@ with st.expander("Quick generate", expanded=not p.switches, icon=":material/bolt
         try:
             if S.vxlan:
                 sw = generate_switches(prefix, leafs, first_ip or None, gw or None, mask,
-                                       super_spines=p.super_spines if p.has_super_spines else 0)
+                                       super_spines=p.super_spines if p.has_super_spines else 0,
+                                       role_models={**hw.suggested(), **p.role_models})
             else:
-                sw = generate_external_switches(prefix, core, edge, first_ip or None, gw or None, mask)
+                sw = generate_external_switches(prefix, core, edge, first_ip or None, gw or None, mask,
+                                                role_models={**hw.suggested(), **p.role_models})
             save(f"Generated {len(sw)} switches", switches=sw)
         except (ValidationError, ValueError) as e:
             show_errors(fmt_errors(e) if isinstance(e, ValidationError) else [str(e)])
@@ -80,6 +115,10 @@ with st.form("switches"):
             "role": st.column_config.SelectboxColumn("Role", options=list(ROLES), default="leaf", required=True),
             "border_set": st.column_config.SelectboxColumn(
                 "Border set", options=list(std.BORDER_SETS), help="Borders only: client, internal or external pair"
+            ),
+            "model": st.column_config.SelectboxColumn(
+                "Model", options=sorted(set(hw.catalog()) | {x.model for x in p.switches if x.model}),
+                help="Nexus 9300 model; port numbering and checks follow it"
             ),
             "serial_number": st.column_config.TextColumn("Serial number", help="Required by ND to add the switch"),
             "management_ipv4_address": st.column_config.TextColumn("Mgmt IPv4"),

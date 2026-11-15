@@ -18,6 +18,7 @@ SWITCH_COLS = {
     "name": "string",
     "role": "string",
     "border_set": "string",
+    "model": "string",
     "serial_number": "string",
     "management_ipv4_address": "string",
     "subnet_mask_ipv4": "Int64",
@@ -89,7 +90,8 @@ def build_rows(rows: list[dict], fn: Callable[[dict], object], label: str) -> tu
 # --- per-table converters -----------------------------------------------------
 def switch_to_row(s: Switch) -> dict:
     m = s.management.to_nac() if s.management else {}
-    return {"name": s.name, "role": s.role, "border_set": s.border_set, "serial_number": s.serial_number, **m}
+    return {"name": s.name, "role": s.role, "border_set": s.border_set, "model": s.model,
+            "serial_number": s.serial_number, **m}
 
 
 def switch_from_row(r: dict) -> Switch:
@@ -168,11 +170,12 @@ def template_csv(columns: list[str], examples: list[dict]) -> str:
 
 TEMPLATES = {
     "switches": [
-        {"name": "dc1-spine1", "role": "spine", "serial_number": "FDO24000001",
+        {"name": "dc1-spine1", "role": "spine", "model": "N9K-C9364C", "serial_number": "FDO24000001",
          "management_ipv4_address": "10.1.1.11", "subnet_mask_ipv4": 24, "default_gateway_v4": "10.1.1.1"},
-        {"name": "dc1-leaf1", "role": "leaf", "serial_number": "FDO24000005",
+        {"name": "dc1-leaf1", "role": "leaf", "model": "N9K-C93180YC-FX", "serial_number": "FDO24000005",
          "management_ipv4_address": "10.1.1.15", "subnet_mask_ipv4": 24, "default_gateway_v4": "10.1.1.1"},
-        {"name": "dc1-border-client1", "role": "border", "border_set": "client", "serial_number": "FDO24000009",
+        {"name": "dc1-border-client1", "role": "border", "border_set": "client", "model": "N9K-C93180YC-FX",
+         "serial_number": "FDO24000009",
          "management_ipv4_address": "10.1.1.19", "subnet_mask_ipv4": 24, "default_gateway_v4": "10.1.1.1"},
     ],
     "vrfs": [

@@ -4,8 +4,9 @@ import pandas as pd
 import streamlit as st
 from pydantic import ValidationError
 
+from nacbuilder import hardware as hw
 from nacbuilder.checks import check_project
-from nacbuilder.defaults import expand_ports
+from nacbuilder.defaults import vrf_lite_uplink, expand_ports
 from nacbuilder.diffing import compare_projects
 from nacbuilder.models import ATTACHABLE_ROLES, Project
 from nacbuilder.tasks import (
@@ -77,7 +78,7 @@ if p.is_vxlan:
             c1, c2, c3, c4 = st.columns(4)
             lite_sw = c1.multiselect("Borders", [s.name for s in p.switches if s.role in BORDER_ROLES],
                                      default=border_switches(p, "external"), key="addvrf_lsw")
-            lite_up = c2.text_input("Uplink port(s)", "Ethernet1/48", key="addvrf_up")
+            lite_up = c2.text_input("Uplink port(s)", vrf_lite_uplink(p), key="addvrf_up")
             lite_pool = c3.text_input("Link pool", "10.254.0.0/24", key="addvrf_pool")
             lite_as = c4.number_input("Neighbor ASN", 1, 4294967295, 65500, key="addvrf_as")
             go = st.form_submit_button("Preview", type="primary")
@@ -182,7 +183,7 @@ if p.is_vxlan:
             with_lite = st.toggle("Hand the VRF off to external routers (VRF-lite)", value=False, disabled=not borders)
             c1, c2, c3, c4 = st.columns(4)
             lite_sw = c1.multiselect("Borders", borders, default=border_switches(p, "external"))
-            lite_up = c2.text_input("Uplink port(s)", "Ethernet1/48")
+            lite_up = c2.text_input("Uplink port(s)", vrf_lite_uplink(p))
             lite_pool = c3.text_input("Link pool", "10.254.0.0/24")
             lite_as = c4.number_input("Neighbor ASN", 1, 4294967295, 65500)
             lite_prefix = st.radio("Link size", [30, 31], horizontal=True, format_func=lambda n: f"/{n}")
@@ -220,7 +221,12 @@ if p.is_vxlan:
             mgmt_gw = c2.text_input("Mgmt gateway", gw or "")
             c1, c2 = st.columns(2)
             fabric_peering = c1.toggle("Fabric peering (no physical peer link)")
-            peerlink = c2.text_input("Peer-link ports", "Ethernet1/53, Ethernet1/54")
+            leaf_models = hw.models_for("leaf")
+            want = p.role_models.get("leaf") or hw.suggested().get("leaf")
+            leaf_model = c1.selectbox("Model", leaf_models, index=leaf_models.index(want) if want in leaf_models else 0,
+                                      key="onb_model")
+            peerlink = c2.text_input("Peer-link ports (blank = the model's)", "",
+                                     placeholder=", ".join(hw.get(want).peer_link()) if hw.get(want) else "Ethernet1/53, Ethernet1/54")
             st.markdown("**Host ports**: one vPC port-channel per port, same port on both leafs")
             c1, c2, c3, c4 = st.columns([2, 1, 1, 2])
             host = c1.text_input("Ports", placeholder="Ethernet1/1-24")
@@ -233,10 +239,10 @@ if p.is_vxlan:
         if go:
             try:
                 hp = HostPorts(host, mode, int(access_vlan), trunk or None) if host.strip() else None
-                links = [] if fabric_peering else expand_ports(peerlink)
+                links = [] if fabric_peering else (expand_ports(peerlink) if peerlink.strip() else None)
                 q = onboard_leaf_pair(p, (name1.strip(), name2.strip()), (serial1.strip(), serial2.strip()),
                                       (ip1.strip(), ip2.strip()), int(mgmt_mask), mgmt_gw.strip() or None, links,
-                                      fabric_peering, hp, join)
+                                      fabric_peering, hp, join, model=leaf_model)
                 stage(f"Onboard {name1.strip()} + {name2.strip()}", q)
             except (ValidationError, ValueError) as e:
                 fail(e)

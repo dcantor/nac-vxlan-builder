@@ -23,6 +23,9 @@ with st.expander("Spine-leaf links (planned)", expanded=True, icon=":material/ca
                "(leafs first, then borders).")
     c1, c2, c3 = st.columns([1, 2, 2])
     include = c1.toggle("Include", value=True)
+    from_models = c1.toggle("Use each switch's model", value=any(x.model for x in p.switches),
+                            help="Ports come from each switch's Nexus 9300 model; the fields here are the fallback "
+                                 "for switches without a model.")
     default_ups = ", ".join(uplink_plan_for(p).leaf_uplinks)
     ups_txt = c2.text_input(f"Leaf/border uplink ports (one per spine, {n_spines} spines)", default_ups)
     first = c3.text_input("First spine downlink port", "Ethernet1/1")
@@ -39,7 +42,7 @@ if n_supers:
 
 try:
     uplinks = UplinkPlan(expand_ports(ups_txt), first, expand_ports(spine_ups_txt) if spine_ups_txt.strip() else [],
-                         super_first) if include else None
+                         super_first, from_models=from_models) if include else None
     plan = build_cabling(p, uplinks)
 except ValueError as e:
     st.error(str(e))

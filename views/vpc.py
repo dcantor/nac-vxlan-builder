@@ -22,11 +22,16 @@ with st.expander("Pair automatically", expanded=not p.vpc_peers, icon=":material
     st.caption("Pairs each border set (client, internal, external), then leafs in name order: leaf1 + leaf2, leaf3 + leaf4, …")
     with st.form("pair"):
         fabric_peering = st.toggle("Fabric peering (virtual peer link, no physical peer-link ports)")
-        links = st.text_input("Peer-link ports (same on both switches)", "Ethernet1/53, Ethernet1/54")
+        have_models = any(x.model for x in candidates)
+        source = st.radio("Peer-link ports", ["From each switch's model", "Same ports on every pair"],
+                          index=0 if have_models else 1, horizontal=True,
+                          help="From the model: the last two uplink ports (Ethernet1/53-54 on a 54-port leaf).")
+        links = st.text_input("Ports (same on every pair)", "Ethernet1/53, Ethernet1/54")
         go = st.form_submit_button("Add pairs")
     if go:
         try:
-            ports = [] if fabric_peering else [x.strip() for x in links.split(",") if x.strip()]
+            ports = [] if fabric_peering else (None if source.startswith("From") else
+                                               [x.strip() for x in links.split(",") if x.strip()])
             new = pair_vpc(p, peerlink_ports=ports, fabric_peering=fabric_peering)
             save(f"Added {len(new)} vPC pair(s)" if new else "No unpaired leafs or border sets left", vpc_peers=[*p.vpc_peers, *new])
         except ValidationError as e:
