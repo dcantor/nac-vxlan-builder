@@ -60,6 +60,27 @@ def file_diffs(p: Project, dest: Path, remove_stale: bool = True) -> list[FileDi
     return out
 
 
+def project_diffs(old: Project, new: Project, context: int = 3) -> list[FileDiff]:
+    """Unified diff of each generated YAML file going from `old` to `new` (e.g. a Day-2 preview).
+    Files only one side generates show as new or removed."""
+    before, after = render_all(old), render_all(new)
+    out = []
+    for name in list(dict.fromkeys([*before, *after])):
+        a, b = before.get(name), after.get(name)
+        if a == b:
+            out.append(FileDiff(name, "unchanged"))
+            continue
+        lines = list(difflib.unified_diff(
+            (a or "").splitlines(keepends=True), (b or "").splitlines(keepends=True),
+            fromfile=f"a/{name}" if a is not None else "/dev/null",
+            tofile=f"b/{name}" if b is not None else "/dev/null", n=context,
+        ))
+        plus, minus = _count(lines)
+        status = "new" if a is None else "removed" if b is None else "changed"
+        out.append(FileDiff(name, status, "".join(lines), plus, minus))
+    return out
+
+
 def _items(p: Project) -> dict[str, dict[str, object]]:
     return {
         "switch": {s.name: s.to_nac() for s in p.switches},

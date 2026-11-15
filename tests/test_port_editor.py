@@ -110,3 +110,41 @@ def test_panel_for_peer_link_is_read_only(demo):
     t = tab(at)
     assert any("vPC peer link to demo-leaf-compute2" in c.value for c in t.caption)
     assert not any(b.label == "Preview changes" for b in t.button)
+
+
+# --- YAML diffs in the preview ---------------------------------------------------------------
+def test_project_diffs(demo):
+    from nacbuilder.diffing import project_diffs
+
+    s = settings_of(port_config(demo, "demo-leaf-compute3", 12))
+    s.enabled = True
+    diffs = {d.name: d for d in project_diffs(demo, set_port(demo, "demo-leaf-compute3", 12, s))}
+    d = diffs["topology_switches.nac.yaml"]
+    assert (d.status, d.added, d.removed) == ("changed", 0, 1)
+    assert "-            enabled: false" in d.diff and "Ethernet1/12" in d.diff
+    assert all(x.status == "unchanged" for n, x in diffs.items() if n != "topology_switches.nac.yaml")
+    assert all(x.status == "unchanged" for x in project_diffs(demo, demo))
+
+
+def test_project_diffs_new_and_removed_files(demo):
+    from nacbuilder.diffing import project_diffs
+
+    no_lite = demo.model_copy(update={"vrf_lites": [], "interfaces": [i for i in demo.interfaces if i.mode == "access" or i.mode == "trunk"]})
+    st = {d.name: d.status for d in project_diffs(demo, no_lite)}
+    assert st["overlay_extensions.nac.yaml"] == "removed"
+    assert {d.name: d.status for d in project_diffs(no_lite, demo)}["overlay_extensions.nac.yaml"] == "new"
+
+
+def test_preview_shows_yaml_diff(demo):
+    at = AppTest.from_file(str(ROOT / "views" / "tasks.py"), default_timeout=30)
+    at.session_state["project"] = demo
+    at.session_state["pp_selected"] = ("demo-leaf-compute1", 30)
+    at.run()
+    t = tab(at)
+    next(b for b in t.button if b.label == "Preview changes").click().run()
+    assert not at.exception
+    assert any(m.value == "**YAML changes**" for m in at.markdown)
+    exp = next(e for e in at.expander if "topology_switches.nac.yaml" in e.label)
+    assert exp.label.endswith("changed (+5 −0)")
+    code = exp.code[0].value
+    assert "+          - name: Ethernet1/30" in code and "+            access_vlan: 2300" in code

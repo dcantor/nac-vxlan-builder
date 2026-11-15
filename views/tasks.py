@@ -9,7 +9,7 @@ from nacbuilder import hardware as hw
 from nacbuilder import standards as std
 from nacbuilder.checks import check_project
 from nacbuilder.defaults import expand_ports, model_for, model_key, vrf_lite_uplink
-from nacbuilder.diffing import compare_projects
+from nacbuilder.diffing import compare_projects, project_diffs
 from nacbuilder.models import ATTACHABLE_ROLES, Project
 from nacbuilder.models.interfaces import SPEEDS
 from nacbuilder.portmap import port_picker, render_svg, switch_ports
@@ -508,6 +508,14 @@ if pv:
                    if pt.state != "unused" and (sw.name, pt.number, pt.state, tuple(pt.details)) not in before_ports}
         st.markdown("**Port map after this change**")
         show_port_map(q, sorted({sw for sw, _ in touched}, key=[s.name for s in q.switches].index), touched)
+    st.markdown("**YAML changes**")
+    ydiffs = [d for d in project_diffs(p, q) if d.status != "unchanged"]
+    if not ydiffs:
+        st.caption("The generated YAML files don't change.")
+    for d in ydiffs:
+        badge = {"new": "new file", "removed": "no longer generated", "changed": "changed"}[d.status]
+        with st.expander(f"`{d.name}`: {badge} (+{d.added} −{d.removed})", expanded=len(ydiffs) <= 2):
+            st.code(d.diff, language="diff")
     c1, c2, _ = st.columns([1, 1, 3])
     if c1.button("Apply", type="primary", disabled=pv["base"] != fingerprint(p), use_container_width=True):
         del st.session_state["task_preview"]

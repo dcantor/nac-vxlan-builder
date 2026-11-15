@@ -75,7 +75,8 @@ the settings back.
 ### Day-2 tasks
 
 The **Day-2 tasks** page bundles common changes that otherwise span several pages. Each one
-shows a preview first: what will be added, removed or changed, and any new check errors.
+shows a preview first: what will be added, removed or changed, any new check errors, and a
+line-by-line diff of each YAML file that changes.
 Nothing changes until you click **Apply**.
 
 - **New tenant:** a VRF and its networks, with VLANs and VNIs allocated automatically, plus the
