@@ -173,7 +173,8 @@ def header(p: Project) -> None:
         counts = f"{len(p.switches)} switches" + (f" · {len(p.vrfs)} VRFs · {len(p.networks)} networks" if p.is_vxlan else "")
         demo = " · :orange-badge[:material/slideshow: Demo]" if is_demo(p) else ""
         c1.markdown(f":material/edit_note: Editing fabric **`{p.fabric.name}`**{demo}  \n"
-                    f":small[{std.get(p.standard).label} · {counts} · {'⛔' if errs else '✅'} {errs} errors]")
+                    f":small[{std.get(p.standard).label} · {counts} · {'⛔' if errs else '✅'} {errs} errors]  \n"
+                    f":small[{nac_version_text()}]")
         entries = {e.name: e for e in workspace.fabrics()}
         names = [p.fabric.name, *[n for n in entries if n != p.fabric.name]]
 
@@ -194,3 +195,23 @@ def header(p: Project) -> None:
         c2.selectbox("Switch fabric", names, index=0, format_func=label, key=widget_key, on_change=on_pick,
                      label_visibility="collapsed", disabled=len(names) < 2,
                      help="Fabrics you've worked on (from History). Switching saves the open fabric first.")
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _installed_nac() -> str | None:
+    from .settings import collection_version
+
+    return collection_version()
+
+
+def nac_version_text() -> str:
+    """'NaC cisco.nac_dc_vxlan 0.9.1 · ND 4.2', plus the installed collection when it's found."""
+    from . import NAC_COLLECTION, NAC_VERSION, ND_VERSION, __version__
+
+    text = f":material/sell: NaC `{NAC_COLLECTION}` {NAC_VERSION} · ND {ND_VERSION} · builder {__version__}"
+    installed = _installed_nac()
+    if installed and installed != NAC_VERSION:
+        text += f" · :orange[installed collection is {installed}]"
+    elif installed:
+        text += " · installed ✓"
+    return text

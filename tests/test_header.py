@@ -60,3 +60,16 @@ def test_switcher_disabled_with_one_fabric():
     at = run_app(full_fabric())
     sel = next(s for s in at.selectbox if s.label == "Switch fabric")
     assert sel.disabled and sel.options == ["dc1 (open)"]
+
+
+def test_header_shows_nac_version(monkeypatch):
+    from nacbuilder import ui
+
+    monkeypatch.setattr(ui, "_installed_nac", lambda: None)
+    assert ui.nac_version_text().startswith(":material/sell: NaC `cisco.nac_dc_vxlan` 0.9.1 · ND 4.2 · builder 0.1.0")
+    monkeypatch.setattr(ui, "_installed_nac", lambda: "0.9.1")
+    assert ui.nac_version_text().endswith("installed ✓")
+    monkeypatch.setattr(ui, "_installed_nac", lambda: "0.10.0")
+    assert ui.nac_version_text().endswith(":orange[installed collection is 0.10.0]")
+    at = run_app(full_fabric())
+    assert any("NaC `cisco.nac_dc_vxlan` 0.9.1" in m.value for m in at.markdown)

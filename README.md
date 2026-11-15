@@ -69,6 +69,8 @@ spreadsheet:
 A bar at the top of every page stays put when you scroll. It shows:
 - the fabric you're editing, its standard, and its switch, VRF and network counts
 - its error count, plus a Demo badge for the demo fabric
+- the NaC version the app writes for (`cisco.nac_dc_vxlan` 0.9.1, ND 4.2) and the builder
+  version, plus whether the installed collection matches
 
 Its dropdown lists the other fabrics you've worked on (every fabric with saved History), newest
 change first. Picking one saves the open fabric if it changed, then opens the other fabric's
