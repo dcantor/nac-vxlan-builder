@@ -87,7 +87,7 @@ def test_import_page_reads_folder_and_loads(tmp_path):
 
 
 PAGES = ["fabric.py", "switches.py", "vpc.py", "underlay.py", "interfaces.py", "attach.py", "vrfs.py", "networks.py",
-         "vrf_lite.py", "topology.py", "review.py", "import_yaml.py", "tasks.py", "history.py"]
+         "vrf_lite.py", "topology.py", "review.py", "import_yaml.py", "tasks.py", "history.py", "cabling.py"]
 
 
 @pytest.mark.parametrize("page", PAGES)
@@ -114,3 +114,21 @@ def test_all_scripts_compile():
 
     for path in [ROOT / "app.py", *sorted((ROOT / "views").glob("*.py")), *sorted((ROOT / "nacbuilder").rglob("*.py"))]:
         py_compile.compile(str(path), doraise=True)
+
+
+def test_interface_csv_appends_on_page(uploads):
+    uploads["interfaces_csv"] = "switch,name,mode,access_vlan\ndc1-leaf1,Ethernet1/20,access,2300\n"
+    at = AppTest.from_file(str(ROOT / "views" / "interfaces.py"), default_timeout=30)
+    at.session_state["project"] = standard_example()
+    at.session_state["interfaces_csv_mode"] = "Append to the table"
+    at.run()
+    assert not at.exception
+    assert [(i.switch, i.name, i.access_vlan) for i in at.session_state["project"].interfaces] == [("dc1-leaf1", "Ethernet1/20", 2300)]
+
+
+def test_vpc_csv_replaces_on_page(uploads):
+    uploads["vpc_csv"] = "peer1,peer2,domain_id,fabric_peering\ndc1-leaf1,dc1-leaf2,9,yes\n"
+    at = run_page("vpc.py", standard_example())
+    assert not at.exception
+    pairs = at.session_state["project"].vpc_peers
+    assert [(v.peer1, v.peer2, v.domain_id, v.fabric_peering) for v in pairs] == [("dc1-leaf1", "dc1-leaf2", 9, True)]

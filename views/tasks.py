@@ -69,7 +69,7 @@ with tab_tenant:
         with_lite = st.toggle("Hand the VRF off to external routers (VRF-lite)", value=False, disabled=not borders)
         c1, c2, c3, c4 = st.columns(4)
         lite_sw = c1.multiselect("Borders", borders, default=border_switches(p, "external"))
-        lite_up = c2.text_input("Uplink port(s)", "Ethernet1/49")
+        lite_up = c2.text_input("Uplink port(s)", "Ethernet1/48")
         lite_pool = c3.text_input("Link pool", "10.254.0.0/24")
         lite_as = c4.number_input("Neighbor ASN", 1, 4294967295, 65500)
         lite_prefix = st.radio("Link size", [30, 31], horizontal=True, format_func=lambda n: f"/{n}")

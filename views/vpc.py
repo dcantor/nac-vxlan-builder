@@ -4,7 +4,7 @@ from pydantic import ValidationError
 from nacbuilder.defaults import pair_vpc
 from nacbuilder.models import SPINE_ROLES
 from nacbuilder.tabular import VPC_COLS, vpc_from_row, vpc_to_row
-from nacbuilder.ui import TABLE_HELP, build_rows, fmt_errors, frame, key, project, records, save, section_issues, show_errors
+from nacbuilder.ui import TABLE_HELP, build_rows, csv_import, fmt_errors, frame, key, project, records, save, section_issues, show_errors
 
 p = project()
 
@@ -31,6 +31,8 @@ with st.expander("Pair automatically", expanded=not p.vpc_peers, icon=":material
             save(f"Added {len(new)} vPC pair(s)" if new else "No unpaired leafs or border sets left", vpc_peers=[*p.vpc_peers, *new])
         except ValidationError as e:
             show_errors(fmt_errors(e))
+
+csv_import("vpc", "vpc_peers", VPC_COLS, vpc_from_row, required=["peer1", "peer2"])
 
 names = sorted({s.name for s in candidates} | paired)
 st.caption(TABLE_HELP)

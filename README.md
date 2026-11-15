@@ -41,6 +41,26 @@ Attach groups → VRFs → Networks → VRF-lite → Topology → Review & expor
 Use **Load example** in the sidebar to explore with a sample fabric that follows the design standard, and
 **Save project (.json)** to come back to a fabric later.
 
+### Cabling plan
+
+The **Cabling plan** page lists what plugs into what, so the install team can work from a
+spreadsheet:
+
+- **Cabling sheet:** one row per cable: vPC peer links (paired port for port), vPC and other
+  port-channel host links, access/trunk/routed host ports, and VRF-lite uplinks to the external
+  routers (with dot1q tag, local IP, neighbor IP and ASN).
+- **Planned spine-leaf links:** Nexus Dashboard discovers these, so they aren't in the YAML. The
+  page lays them out by a rule you can change: uplink k on every leaf/border goes to spine k
+  (default `Ethernet1/49-52` for 4 spines), and each spine uses the next port per leaf,
+  starting at `Ethernet1/1`, leafs first, then the client, internal and external borders.
+  These rows are marked `planned`.
+- **Ports sheet:** every port in use on every switch: what it's for, port-channel, vPC ID,
+  mode, VLANs, IP/VRF and what it connects to.
+- **Conflicts:** a port used for two things (for example a VRF-lite uplink on a spine uplink
+  port) is flagged.
+- **Export:** an Excel workbook (Cabling, Ports, vPC pairs, VRF-lite and Notes sheets, with
+  filters and frozen headers) or a zip of CSVs.
+
 ### Day-2 tasks
 
 The **Day-2 tasks** page bundles common changes that otherwise span several pages. Each one
@@ -109,7 +129,7 @@ How it works:
 
 ### CSV import
 
-The Switches, VRFs and Networks pages each have an **Import CSV** panel:
+The Switches, vPC pairs, Interfaces, VRFs and Networks pages each have an **Import CSV** panel:
 
 1. Click **Download template** to get the expected headers plus example rows.
 2. Fill it in (Excel is fine), and choose whether imported rows **replace** the table or are **appended**.
@@ -120,6 +140,8 @@ The Switches, VRFs and Networks pages each have an **Import CSV** panel:
 |---|---|---|
 | Switches | `name` | `role` (default `leaf`), `border_set` (`client`/`internal`/`external`), `serial_number`, `management_ipv4_address`, `subnet_mask_ipv4`, `default_gateway_v4` |
 | VRFs | `name`, `vrf_id`, `vlan_id` | `vrf_attach_group` |
+| vPC pairs | `peer1`, `peer2` | `domain_id`, `fabric_peering`, `peer1_peerlink_interfaces`, `peer2_peerlink_interfaces` (comma separated) |
+| Interfaces | `switch`, `name`, `mode` | `description`, `access_vlan`, `trunk_allowed_vlans` (`10-20,50`), `native_vlan`, `members` (comma separated), `vpc_id`, `ipv4_address`, `vrf`, `dot1q_id`, `mtu`, `speed`, `enabled` |
 | Networks | `name`, `vrf_name`, `net_id`, `vlan_id` | `vlan_name` (default `<name>_vlan<vlan_id>`), `gw_ip_address`, `gw_ipv6_address`, `network_attach_group`, `mtu_l3intf`, `int_desc`, `route_target_both`, `l3gw_on_border` |
 
 Headers are case-insensitive (`Border Set` works). Blank cells mean "not set", and booleans
@@ -221,6 +243,7 @@ nacbuilder/diffing.py   file diffs and added/removed/changed items
 nacbuilder/diagram.py   topology SVG
 nacbuilder/tasks.py     day-2 tasks (new tenant, onboard leaf pair, decommission)
 nacbuilder/history.py   snapshots and undo/redo
+nacbuilder/cabling.py   cabling and port plan, Excel/CSV export
 tests/golden/       Cisco's example files, used as expected output
 ```
 

@@ -5,7 +5,7 @@ from nacbuilder.defaults import expand_ports, vpc_port_channel
 from nacbuilder.models import MODES, SPINE_ROLES, Interface
 from nacbuilder.models.interfaces import SPEEDS
 from nacbuilder.tabular import INTERFACE_COLS, interface_from_row, interface_to_row
-from nacbuilder.ui import TABLE_HELP, build_rows, fmt_errors, frame, key, project, records, save, section_issues, show_errors
+from nacbuilder.ui import TABLE_HELP, build_rows, csv_import, fmt_errors, frame, key, project, records, save, section_issues, show_errors
 
 ALL = "All switches"
 
@@ -97,6 +97,8 @@ with tab_vpc:
                 show_errors(fmt_errors(e))
             except ValueError as e:
                 show_errors([str(e)])
+
+csv_import("interfaces", "interfaces", INTERFACE_COLS, interface_from_row, required=["switch", "name", "mode"])
 
 st.subheader("Table", divider="gray")
 view = st.selectbox("Show", [ALL, *names], key="if_filter")

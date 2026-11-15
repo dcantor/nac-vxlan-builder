@@ -268,3 +268,21 @@ def interface_from_row(r: dict):
     if isinstance(r.get("mode"), str):
         r["mode"] = r["mode"].lower()
     return Interface(**r)
+
+
+TEMPLATES["vpc"] = [
+    {"peer1": "dc1-leaf1", "peer2": "dc1-leaf2", "domain_id": 4, "fabric_peering": "false",
+     "peer1_peerlink_interfaces": "Ethernet1/53, Ethernet1/54", "peer2_peerlink_interfaces": "Ethernet1/53, Ethernet1/54"},
+    {"peer1": "dc1-leaf3", "peer2": "dc1-leaf4", "domain_id": 5, "fabric_peering": "true"},
+]
+TEMPLATES["interfaces"] = [
+    {"switch": "dc1-leaf1", "name": "Ethernet1/10", "mode": "access", "description": "server-01", "access_vlan": 2300},
+    {"switch": "dc1-leaf1", "name": "Ethernet1/11", "mode": "trunk", "description": "esx-01", "trunk_allowed_vlans": "2300-2310,2400"},
+    {"switch": "dc1-leaf1", "name": "port-channel20", "mode": "trunk", "description": "esx-02", "members": "Ethernet1/1",
+     "vpc_id": 20, "trunk_allowed_vlans": "2300-2310"},
+    {"switch": "dc1-leaf2", "name": "port-channel20", "mode": "trunk", "description": "esx-02", "members": "Ethernet1/1",
+     "vpc_id": 20, "trunk_allowed_vlans": "2300-2310"},
+    {"switch": "dc1-border-external1", "name": "Ethernet1/49", "mode": "routed", "description": "WAN uplink"},
+    {"switch": "dc1-border-external1", "name": "Ethernet1/49.2000", "mode": "routed_sub", "dot1q_id": 2000,
+     "vrf": "VRF01", "ipv4_address": "10.254.0.1/30"},
+]

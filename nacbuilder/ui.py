@@ -117,7 +117,8 @@ def csv_import(name: str, field: str, columns: dict[str, str], from_row: Callabl
                 current = getattr(project(), field)
                 new = items if mode.startswith("Replace") else [*current, *items]
                 verb = "Replaced the table with" if mode.startswith("Replace") else "Appended"
-                save(f"{verb} {len(items)} {name} from {up.name}", **{field: new})
+                label = {"vpc": "vPC pair(s)"}.get(name, name)
+                save(f"{verb} {len(items)} {label} from {up.name}", **{field: new})
 
 
 def section_issues(section: str) -> None:

@@ -23,7 +23,8 @@ pages = [
     st.Page("views/networks.py", title="8. Networks", icon=":material/lan:"),
     st.Page("views/vrf_lite.py", title="9. VRF-lite", icon=":material/alt_route:"),
     st.Page("views/topology.py", title="10. Topology", icon=":material/schema:"),
-    st.Page("views/review.py", title="11. Review & export", icon=":material/download:"),
+    st.Page("views/cabling.py", title="11. Cabling plan", icon=":material/cable:"),
+    st.Page("views/review.py", title="12. Review & export", icon=":material/download:"),
 ]
 history_page = st.Page("views/history.py", title="History", icon=":material/history:")
 nav = st.navigation([*pages, history_page])
