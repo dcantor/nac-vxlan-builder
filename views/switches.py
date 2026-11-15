@@ -1,11 +1,11 @@
-import pandas as pd
 import streamlit as st
 from pydantic import ValidationError
 
 from nacbuilder import standards as std
 from nacbuilder.defaults import generate_switches
-from nacbuilder.models import ROLES, Management, Switch
-from nacbuilder.ui import build_rows, fmt_errors, frame, key, project, records, save, section_issues, show_errors
+from nacbuilder.models import ROLES
+from nacbuilder.tabular import SWITCH_COLS, switch_from_row, switch_to_row
+from nacbuilder.ui import build_rows, csv_import, fmt_errors, frame, key, project, records, save, section_issues, show_errors
 
 p = project()
 
@@ -19,26 +19,9 @@ for col, (label, n) in zip(st.columns(len(counts)), counts.items()):
     want = targets.get(label)
     col.metric(label, n, delta=None if want is None or n == want else f"need {want}", delta_color="inverse")
 
-COLS = {
-    "name": "string",
-    "role": "string",
-    "border_set": "string",
-    "serial_number": "string",
-    "management_ipv4_address": "string",
-    "subnet_mask_ipv4": "Int64",
-    "default_gateway_v4": "string",
-}
-
-
-def to_row(s: Switch) -> dict:
-    m = s.management.to_nac() if s.management else {}
-    return {"name": s.name, "role": s.role, "border_set": s.border_set, "serial_number": s.serial_number, **m}
-
-
-def from_row(r: dict) -> Switch:
-    mgmt = {k: r.pop(k) for k in ("management_ipv4_address", "subnet_mask_ipv4", "default_gateway_v4") if k in r}
-    return Switch(**r, management=Management(**mgmt) if mgmt else None)
-
+COLS = SWITCH_COLS
+to_row = switch_to_row
+from_row = switch_from_row
 
 with st.expander("Quick generate", expanded=not p.switches, icon=":material/bolt:"):
     st.caption(
@@ -61,20 +44,7 @@ with st.expander("Quick generate", expanded=not p.switches, icon=":material/bolt
         except (ValidationError, ValueError) as e:
             show_errors(fmt_errors(e) if isinstance(e, ValidationError) else [str(e)])
 
-with st.expander("Import CSV", icon=":material/upload_file:"):
-    st.caption(f"Columns: {', '.join(COLS)}. Only `name` is required.")
-    up = st.file_uploader("CSV file", type=["csv"], key=key("switch_csv"), label_visibility="collapsed")
-    if up is not None:
-        df = pd.read_csv(up, dtype=str)
-        unknown = set(df.columns) - set(COLS)
-        if unknown:
-            show_errors([f"Unknown column(s): {', '.join(sorted(unknown))}"])
-        else:
-            sw, errors = build_rows(records(df.reindex(columns=list(COLS))), from_row, "CSV")
-            if errors:
-                show_errors(errors)
-            else:
-                save(f"Imported {len(sw)} switches", switches=sw)
+csv_import("switches", "switches", COLS, from_row, required=["name"])
 
 with st.form("switches"):
     df = st.data_editor(

@@ -1,8 +1,9 @@
 import streamlit as st
 
 from nacbuilder.defaults import next_network
-from nacbuilder.models import Network
-from nacbuilder.ui import build_rows, frame, key, project, records, save, section_issues, show_errors
+from nacbuilder.tabular import NETWORK_COLS
+from nacbuilder.tabular import network_from_row as from_row
+from nacbuilder.ui import build_rows, csv_import, frame, key, project, records, save, section_issues, show_errors
 
 p = project()
 
@@ -14,20 +15,9 @@ if not p.vrfs:
 if st.button("Add network", icon=":material/add:", help="Appends a network with the next free VNI and VLAN"):
     save(None, networks=[*p.networks, next_network(p)])
 
-COLS = {
-    "name": "string",
-    "vrf_name": "string",
-    "net_id": "Int64",
-    "vlan_id": "Int64",
-    "vlan_name": "string",
-    "gw_ip_address": "string",
-    "gw_ipv6_address": "string",
-    "network_attach_group": "string",
-    "mtu_l3intf": "Int64",
-    "int_desc": "string",
-    "route_target_both": "bool",
-    "l3gw_on_border": "bool",
-}
+COLS = NETWORK_COLS
+csv_import("networks", "networks", COLS, from_row, required=["name", "vrf_name", "net_id", "vlan_id"])
+
 vrf_names = sorted({v.name for v in p.vrfs} | {n.vrf_name for n in p.networks if n.vrf_name})
 groups = sorted(set(p.attach_groups()) | {n.network_attach_group for n in p.networks if n.network_attach_group})
 
@@ -53,14 +43,6 @@ with st.form("networks"):
         },
     )
     submitted = st.form_submit_button("Save", type="primary")
-
-
-def from_row(r: dict) -> Network:
-    for flag in ("route_target_both", "l3gw_on_border"):
-        if not r.get(flag):
-            r.pop(flag, None)  # unchecked = leave unset (ND default false)
-    r.setdefault("vlan_name", f"{r.get('name')}_vlan{r.get('vlan_id')}")
-    return Network(**r)
 
 
 if submitted:

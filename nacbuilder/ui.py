@@ -6,16 +6,14 @@ every data_editor restarts from the saved data (otherwise its pending edits woul
 be re-applied on top of the already-saved rows).
 """
 
-import math
-import re
 from typing import Callable
 
 import pandas as pd
 import streamlit as st
-from pydantic import ValidationError
 
 from .checks import Issue, check_project
 from .models import Project
+from .tabular import TEMPLATES, build_rows, clean, fmt_errors, import_csv, records, template_csv  # noqa: F401 (re-exported)
 
 
 def project() -> Project:
@@ -45,61 +43,48 @@ def show_flash() -> None:
         st.toast(msg, icon="✅")
 
 
-def clean(v):
-    """Normalise a data_editor cell: blanks/NaN -> None, numpy scalars -> Python, 3.0 -> 3."""
-    if v is None or v is pd.NA or v is pd.NaT:
-        return None
-    if hasattr(v, "item") and not isinstance(v, (str, bytes)):
-        v = v.item()
-    if isinstance(v, float):
-        if math.isnan(v):
-            return None
-        if v.is_integer():
-            return int(v)
-    if isinstance(v, str):
-        return v.strip() or None
-    return v
-
-
-def records(df: pd.DataFrame) -> list[dict]:
-    rows = [{k: clean(v) for k, v in r.items()} for r in df.to_dict("records")]
-    return [r for r in rows if any(v not in (None, False) for v in r.values())]
-
-
 def frame(rows: list[dict], columns: dict[str, str]) -> pd.DataFrame:
     """Build a DataFrame with stable column order and dtypes (Int64/string/bool)."""
     df = pd.DataFrame(rows, columns=list(columns))
     for col, dtype in columns.items():
         if dtype == "bool":
-            df[col] = df[col].fillna(False).astype(bool)
+            df[col] = pd.Series([bool(clean(v)) for v in df[col]], index=df.index, dtype=bool)
         else:
             df[col] = df[col].astype(dtype)
     return df
 
 
-def fmt_errors(e: ValidationError, prefix: str = "") -> list[str]:
-    out = []
-    for err in e.errors():
-        loc = ".".join(str(x) for x in err["loc"])
-        msg = re.sub(r"^Value error, ", "", err["msg"])
-        out.append(f"{prefix}{loc + ': ' if loc else ''}{msg}")
-    return out
+def show_errors(errors: list[str], title: str = "Not saved. Fix these and save again:") -> None:
+    st.error(f"{title}\n\n" + "\n".join(f"- {e}" for e in errors))
 
 
-def build_rows(rows: list[dict], fn: Callable[[dict], object], label: str) -> tuple[list, list[str]]:
-    items, errors = [], []
-    for i, r in enumerate(rows, 1):
-        try:
-            items.append(fn({k: v for k, v in r.items() if v is not None}))
-        except ValidationError as e:
-            errors += fmt_errors(e, f"{label} row {i}: ")
-        except (ValueError, TypeError) as e:
-            errors.append(f"{label} row {i}: {e}")
-    return items, errors
-
-
-def show_errors(errors: list[str]) -> None:
-    st.error("Not saved. Fix these and save again:\n\n" + "\n".join(f"- {e}" for e in errors))
+def csv_import(name: str, field: str, columns: dict[str, str], from_row: Callable[[dict], object], required: list[str]) -> None:
+    """Expander with a template download and an uploader that replaces or appends `project().<field>`."""
+    with st.expander("Import CSV", icon=":material/upload_file:"):
+        optional = [c for c in columns if c not in required]
+        st.caption(
+            f"**Required:** {', '.join(f'`{c}`' for c in required)} · **Optional:** {', '.join(f'`{c}`' for c in optional)}. "
+            "Headers are matched case-insensitively; blank cells mean \"not set\"."
+        )
+        c1, c2 = st.columns([1, 2], vertical_alignment="center")
+        c1.download_button(
+            "Download template",
+            template_csv(list(columns), TEMPLATES[name]),
+            file_name=f"{name}_template.csv",
+            mime="text/csv",
+            icon=":material/download:",
+        )
+        mode = c2.radio("Imported rows", ["Replace the table", "Append to the table"], horizontal=True, key=f"{name}_csv_mode")
+        up = st.file_uploader("CSV file", type=["csv"], key=key(f"{name}_csv"))
+        if up is not None:
+            items, errors = import_csv(up.getvalue(), list(columns), from_row)
+            if errors:
+                show_errors(errors, f"Nothing imported from {up.name}. Fix the file and upload it again:")
+            else:
+                current = getattr(project(), field)
+                new = items if mode.startswith("Replace") else [*current, *items]
+                verb = "Replaced the table with" if mode.startswith("Replace") else "Appended"
+                save(f"{verb} {len(items)} {name} from {up.name}", **{field: new})
 
 
 def section_issues(section: str) -> None:

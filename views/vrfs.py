@@ -1,8 +1,8 @@
 import streamlit as st
 
 from nacbuilder.defaults import next_vrf
-from nacbuilder.models import Vrf
-from nacbuilder.ui import build_rows, frame, key, project, records, save, section_issues, show_errors
+from nacbuilder.tabular import VRF_COLS, vrf_from_row
+from nacbuilder.ui import build_rows, csv_import, frame, key, project, records, save, section_issues, show_errors
 
 p = project()
 
@@ -12,12 +12,13 @@ st.caption("Tenant VRFs: VRF ID is the L3 VNI → `vrfs.nac.yaml`")
 if st.button("Add VRF", icon=":material/add:", help="Appends a VRF with the next free VNI and VLAN"):
     save(None, vrfs=[*p.vrfs, next_vrf(p)])
 
-COLS = {"name": "string", "vrf_id": "Int64", "vlan_id": "Int64", "vrf_attach_group": "string"}
+csv_import("vrfs", "vrfs", VRF_COLS, vrf_from_row, required=["name", "vrf_id", "vlan_id"])
+
 groups = sorted(set(p.attach_groups()) | {v.vrf_attach_group for v in p.vrfs if v.vrf_attach_group})
 
 with st.form("vrfs"):
     df = st.data_editor(
-        frame([v.to_nac() for v in p.vrfs], COLS),
+        frame([v.to_nac() for v in p.vrfs], VRF_COLS),
         num_rows="dynamic",
         use_container_width=True,
         key=key("vrfs"),
@@ -31,7 +32,7 @@ with st.form("vrfs"):
     submitted = st.form_submit_button("Save", type="primary")
 
 if submitted:
-    vrfs, errors = build_rows(records(df), lambda r: Vrf(**r), "VRF")
+    vrfs, errors = build_rows(records(df), vrf_from_row, "VRF")
     if errors:
         show_errors(errors)
     else:

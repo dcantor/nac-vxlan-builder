@@ -38,6 +38,24 @@ Networks → Review & export**. Each page has a **Save** button; nothing is kept
 Use **Load example** in the sidebar to explore with a sample fabric that follows the design standard, and
 **Save project (.json)** to come back to a fabric later.
 
+### CSV import
+
+The Switches, VRFs and Networks pages each have an **Import CSV** panel:
+
+1. Click **Download template** to get the expected headers plus example rows.
+2. Fill it in (Excel is fine), and choose whether imported rows **replace** the table or are **appended**.
+3. Upload it. If any line has a problem, nothing is imported and every error is listed with its
+   spreadsheet line number.
+
+| Table | Required columns | Optional columns |
+|---|---|---|
+| Switches | `name` | `role` (default `leaf`), `border_set` (`client`/`internal`/`external`), `serial_number`, `management_ipv4_address`, `subnet_mask_ipv4`, `default_gateway_v4` |
+| VRFs | `name`, `vrf_id`, `vlan_id` | `vrf_attach_group` |
+| Networks | `name`, `vrf_name`, `net_id`, `vlan_id` | `vlan_name` (default `<name>_vlan<vlan_id>`), `gw_ip_address`, `gw_ipv6_address`, `network_attach_group`, `mtu_l3intf`, `int_desc`, `route_target_both`, `l3gw_on_border` |
+
+Headers are case-insensitive (`Border Set` works). Blank cells mean "not set", and booleans
+accept `true/yes/y/1/x`. To export a table, use the download icon on the table's toolbar.
+
 On **Review & export** you can:
 
 - see cross-checks the schema can't express: duplicate VLANs/VNIs, unknown VRFs or attach groups,
