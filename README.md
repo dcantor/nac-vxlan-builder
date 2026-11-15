@@ -20,6 +20,9 @@ host_vars/<fabric>/
 
 `topology_switches.nac.yaml` also carries `vpc_peers` and each switch's `interfaces`.
 
+A 13-page guided tour with screenshots of a working example is in
+[`docs/nac-vxlan-builder-tour.pdf`](docs/nac-vxlan-builder-tour.pdf).
+
 ## Setup
 
 Requires Python 3.11+.

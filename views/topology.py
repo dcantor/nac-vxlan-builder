@@ -16,9 +16,11 @@ if not p.switches:
     st.info("Add switches first.", icon=":material/info:")
 else:
     svg = render_svg(p)
-    height = int(re.search(r'height="(\d+)"', svg)[1])
-    # An iframe keeps the SVG intact (st.html sanitises SVG away) and keeps the hover tooltips.
-    components.html(f'<body style="margin:0">{svg}</body>', height=height + 20, scrolling=True)
+    width, height = (int(x) for x in re.search(r'width="(\d+)" height="(\d+)"', svg).groups())
+    # Scale to the page width; the iframe keeps the SVG intact (st.html strips SVG) and the hover tooltips.
+    fitted = svg.replace(f'width="{width}" height="{height}"', 'width="100%"', 1)
+    view_w = 1000  # typical content width; the frame is sized for it so wide diagrams aren't clipped
+    components.html(f'<body style="margin:0">{fitted}</body>', height=int(height * min(1, view_w / width)) + 16)
     c1, c2 = st.columns([1, 3])
     c1.download_button("Download SVG", svg, file_name=f"{p.fabric.name}-topology.svg", mime="image/svg+xml",
                        icon=":material/download:")

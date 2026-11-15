@@ -176,3 +176,14 @@ def test_history_page_restore(tmp_path, monkeypatch):
     at.session_state["project"] = p.model_copy(update={"switches": p.switches[:4]})
     at.run()
     assert not at.exception and at.title
+
+
+def test_onboarding_keeps_vrfs_with_their_networks():
+    """A tenant whose VRF has its own group (VRF-lite copy) must follow its networks onto new leafs."""
+    p = standard_example()
+    p = new_tenant(p, "PROD", [NetworkSpec("WEB", "10.20.1.1/24")],
+                   vrf_lite=VrfLiteSpec(border_switches(p), ["Ethernet1/48"], "10.254.0.0/24", 30, 65500))
+    assert next(v for v in p.vrfs if v.name == "PROD").vrf_attach_group == "PROD-vrf"
+    q = onboard_leaf_pair(p, ("dc1-leaf5", "dc1-leaf6"), peerlink_ports=["Ethernet1/53"], groups=["all"])
+    assert [i.message for i in check_project(q) if i.section in ("Networks", "VRFs", "Attach groups")] == []
+    assert {"dc1-leaf5", "dc1-leaf6"} <= {a.hostname for a in q.attachments if a.group == "PROD-vrf"}

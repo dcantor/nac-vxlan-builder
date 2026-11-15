@@ -158,12 +158,16 @@ if pv:
         col.markdown(f"{icon} **{title} ({len(items)})**")
         if items:
             col.markdown("\n".join(f"- {i}" for i in items[:50]) + (f"\n- … {len(items) - 50} more" if len(items) > 50 else ""))
-    before = {(i.section, i.message) for i in check_project(p) if i.level == "error"}
-    new_errors = [i for i in check_project(q) if i.level == "error" and (i.section, i.message) not in before]
+    before = {(i.section, i.message) for i in check_project(p)}
+    new_issues = [i for i in check_project(q) if (i.section, i.message) not in before]
+    new_errors = [i for i in new_issues if i.level == "error"]
+    new_warnings = [i for i in new_issues if i.level == "warning"]
     if new_errors:
         st.error("This change introduces errors:\n\n" + "\n".join(f"- **{i.section}**: {i.message}" for i in new_errors))
-    else:
-        st.success("No new check errors.", icon="✅")
+    if new_warnings:
+        st.warning("New warnings:\n\n" + "\n".join(f"- **{i.section}**: {i.message}" for i in new_warnings))
+    if not new_issues:
+        st.success("No new errors or warnings.", icon="✅")
     c1, c2, _ = st.columns([1, 1, 3])
     if c1.button("Apply", type="primary", disabled=pv["base"] != fingerprint(p), use_container_width=True):
         del st.session_state["task_preview"]

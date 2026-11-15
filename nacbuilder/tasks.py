@@ -177,6 +177,17 @@ def onboard_leaf_pair(
             po += 1
     for g in groups or []:
         q.attachments += [Attachment(group=g, hostname=n) for n in names]
+    # A VRF can have its own attach group (e.g. after VRF-lite copied a shared group). If its networks
+    # now reach the new leafs, the VRF must too, or the networks would sit on leafs without their VRF.
+    vrf_groups = {v.name: v.vrf_attach_group for v in q.vrfs}
+    have = {(a.group, a.hostname) for a in q.attachments if a.applies_to("vrf")}
+    for n in q.networks:
+        vg = vrf_groups.get(n.vrf_name)
+        if n.network_attach_group in (groups or []) and vg and vg != n.network_attach_group:
+            for leaf in names:
+                if (vg, leaf) not in have:
+                    q.attachments.append(Attachment(group=vg, hostname=leaf, used_for="vrf"))
+                    have.add((vg, leaf))
     return q
 
 
