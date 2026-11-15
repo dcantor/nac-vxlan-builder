@@ -32,13 +32,16 @@ def generate_switches(
     first_mgmt_ip: str | None = None,
     gateway: str | None = None,
     mask: int | None = None,
+    super_spines: int = 0,
 ) -> list[Switch]:
-    """A standard fabric: 4 spines, `leafs` leafs, then the client/internal/external border pairs.
+    """A standard fabric: optional super spines, 4 spines, `leafs` leafs, then the client/internal/external
+    border pairs.
 
-    Names: <prefix>-spine1..4, <prefix>-leaf1..N, <prefix>-border-client1..2, -border-internal1..2,
+    Names: <prefix>-superspine1..N, <prefix>-spine1..4, <prefix>-leaf1..N, <prefix>-border-client1..2, -border-internal1..2,
     -border-external1..2. Management IPs are handed out in that order.
     """
-    plan: list[tuple[str, str, str | None]] = [(f"spine{i}", "spine", None) for i in range(1, std.SPINE_COUNT + 1)]
+    plan: list[tuple[str, str, str | None]] = [(f"superspine{i}", "super_spine", None) for i in range(1, super_spines + 1)]
+    plan += [(f"spine{i}", "spine", None) for i in range(1, std.SPINE_COUNT + 1)]
     plan += [(f"leaf{i}", "leaf", None) for i in range(1, leafs + 1)]
     for bset in std.BORDER_SETS:
         plan += [(f"border-{bset}{i}", "border", bset) for i in range(1, std.BORDERS_PER_SET + 1)]
@@ -152,6 +155,10 @@ def pair_vpc(p: Project, peerlink_ports: list[str] | None = None, fabric_peering
             pairs.append((members[0], members[1]))
     leafs = sorted((s.name for s in p.switches if s.role == "leaf" and s.name not in taken), key=_natural)
     pairs += list(zip(leafs[0::2], leafs[1::2]))
+    # Non-VXLAN designs: core and edge routers pair up the same way
+    for role in ("core_router", "edge_router"):
+        rs = sorted((s.name for s in p.switches if s.role == role and s.name not in taken), key=_natural)
+        pairs += list(zip(rs[0::2], rs[1::2]))
     next_id = max([0, *(v.domain_id or 0 for v in p.vpc_peers)]) + 1
     out = []
     for i, (a, b) in enumerate(pairs):
@@ -277,3 +284,18 @@ def apply_vrf_lite_plan(p: Project, plan: VrfLitePlan) -> Project:
     q.interfaces += plan.interfaces
     q.attachments += plan.attachments
     return q
+
+
+def generate_external_switches(prefix: str, core: int, edge: int, first_mgmt_ip: str | None = None,
+                               gateway: str | None = None, mask: int | None = None) -> list[Switch]:
+    """Non-VXLAN design (NaC External fabric): <prefix>-core1..N (core_router), <prefix>-edge1..N (edge_router)."""
+    ip = IPv4Address(first_mgmt_ip) if first_mgmt_ip else None
+    out = []
+    for suffix, role, count in (("core", "core_router", core), ("edge", "edge_router", edge)):
+        for i in range(1, count + 1):
+            mgmt = Management(management_ipv4_address=ip, default_gateway_v4=gateway or None, subnet_mask_ipv4=mask) \
+                if (ip or gateway or mask) else None
+            out.append(Switch(name=f"{prefix}-{suffix}{i}", role=role, management=mgmt))
+            if ip:
+                ip += 1
+    return out

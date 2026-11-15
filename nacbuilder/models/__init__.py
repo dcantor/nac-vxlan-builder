@@ -1,3 +1,5 @@
+from typing import Literal, Optional
+
 from pydantic import Field
 
 from .base import NacModel
@@ -26,6 +28,18 @@ class Project(NacModel):
     interfaces: list[Interface] = Field(default_factory=list)
     vrf_lites: list[VrfLite] = Field(default_factory=list)
     preserved: Preserved = Field(default_factory=Preserved)
+    # App-only: which house design standard this fabric follows (see standards.py).
+    standard: Literal["dc", "dmz", "non_vxlan"] = "dc"
+    # App-only, DC Fabric only: a super spine layer of 2 or 4 super spines (they become the route reflectors).
+    super_spines: Optional[Literal[2, 4]] = None
+
+    @property
+    def has_super_spines(self) -> bool:
+        return self.standard == "dc" and self.super_spines is not None
+
+    @property
+    def is_vxlan(self) -> bool:
+        return self.standard != "non_vxlan"
 
     def interfaces_of(self, switch: str) -> list[Interface]:
         return [i for i in self.interfaces if i.switch == switch]

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from nacbuilder import standards as std
 from nacbuilder.checks import check_project
 from nacbuilder.diffing import change_summary, file_diffs
 from nacbuilder.generate import apply_write, plan_write, render_all, zip_bytes
@@ -85,7 +86,7 @@ with st.expander("Validation settings", icon=":material/tune:"):
             st.toast("Validation settings saved", icon="✅")
             st.rerun()
 
-rules = resolve_rules(cfg)
+rules = resolve_rules(cfg, fabric_type=std.get(p.standard).fabric_type)
 schema = Path(cfg.schema_path).expanduser() if cfg.schema_path else None
 what = f"{'full schema' if schema else 'bundled schema'}" + (f" + {len(rules)} rule set(s): {', '.join(r.name for r in rules)}" if rules else "")
 c1, c2 = st.columns([1, 3])

@@ -63,12 +63,14 @@ def test_settings_and_rule_dirs(tmp_path, monkeypatch):
     from nacbuilder.settings import Settings, load_settings, resolve_rules, rule_dirs, save_settings
 
     coll = tmp_path / "ansible_collections/cisco/nac_dc_vxlan/roles/validate/files/rules"
-    for sub in ("common", "common_vxlan", "ibgp_vxlan", "ebgp_vxlan"):
+    for sub in ("common", "common_vxlan", "ibgp_vxlan", "ebgp_vxlan", "external"):
         (coll / sub).mkdir(parents=True)
-    assert [d.name for d in rule_dirs(coll)] == ["common", "common_vxlan", "ibgp_vxlan"]
+    assert [d.name for d in rule_dirs(coll)] == ["common", "ibgp_vxlan", "common_vxlan"]
+    assert [d.name for d in rule_dirs(coll, "External")] == ["common", "external"]
     assert rule_dirs(RULES) == [RULES]
     monkeypatch.setenv("ANSIBLE_COLLECTIONS_PATH", str(tmp_path))
-    assert [d.name for d in resolve_rules(Settings())] == ["common", "common_vxlan", "ibgp_vxlan"]
+    assert [d.name for d in resolve_rules(Settings())] == ["common", "ibgp_vxlan", "common_vxlan"]
+    assert [d.name for d in resolve_rules(Settings(), fabric_type="External")] == ["common", "external"]
     assert resolve_rules(Settings(use_rules=False)) == []
     cfg = tmp_path / "cfg.json"
     save_settings(Settings(schema_path="/x.yaml", rules_path=str(RULES)), cfg)

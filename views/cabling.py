@@ -16,7 +16,7 @@ if not p.switches:
     st.info("Add switches first.", icon=":material/info:")
     st.stop()
 
-n_spines = sum(s.role in SPINE_ROLES for s in p.switches)
+n_spines = sum(s.role in SPINE_ROLES and s.role != "super_spine" for s in p.switches)
 with st.expander("Spine-leaf links (planned)", expanded=True, icon=":material/cable:"):
     st.caption("Nexus Dashboard discovers fabric links, so they aren't in the YAML. This lays them out by a simple rule: "
                "uplink k on every leaf/border goes to spine k, and each spine uses the next port per leaf "
@@ -27,8 +27,19 @@ with st.expander("Spine-leaf links (planned)", expanded=True, icon=":material/ca
     ups_txt = c2.text_input(f"Leaf/border uplink ports (one per spine, {n_spines} spines)", default_ups)
     first = c3.text_input("First spine downlink port", "Ethernet1/1")
 
+n_supers = sum(s.role == "super_spine" for s in p.switches)
+spine_ups_txt, super_first = "", "Ethernet1/1"
+if n_supers:
+    with st.expander("Super spine links (planned)", expanded=True, icon=":material/cable:"):
+        st.caption("Uplink k on every spine goes to super spine k; each super spine uses the next port per spine.")
+        c1, c2 = st.columns(2)
+        spine_ups_txt = c1.text_input(f"Spine uplink ports (one per super spine, {n_supers} super spines)",
+                                      ", ".join(uplink_plan_for(p).spine_uplinks))
+        super_first = c2.text_input("First super spine downlink port", "Ethernet1/1")
+
 try:
-    uplinks = UplinkPlan(expand_ports(ups_txt), first) if include else None
+    uplinks = UplinkPlan(expand_ports(ups_txt), first, expand_ports(spine_ups_txt) if spine_ups_txt.strip() else [],
+                         super_first) if include else None
     plan = build_cabling(p, uplinks)
 except ValueError as e:
     st.error(str(e))

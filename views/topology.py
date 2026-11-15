@@ -24,5 +24,5 @@ else:
     c1, c2 = st.columns([1, 3])
     c1.download_button("Download SVG", svg, file_name=f"{p.fabric.name}-topology.svg", mime="image/svg+xml",
                        icon=":material/download:")
-    c2.caption("Legend: purple = spines (RR = route reflector), blue = leafs, teal / amber / red = client / internal / "
+    c2.caption("Legend: indigo = super spines, purple = spines (RR = route reflector), blue = leafs, teal / amber / red = client / internal / "
                "external borders, thick black line = vPC peer link, red dashes = VRF-lite handoff.")

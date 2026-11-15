@@ -11,6 +11,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
 from . import __version__
+from . import standards as std
 from .merge import keep
 from .models import Project
 
@@ -64,11 +65,14 @@ def build_documents(p: Project) -> dict[str, dict]:
     Settings preserved from an imported fabric are merged back in; generated values win.
     """
     pv = p.preserved
-    ibgp = keep(p.ibgp.to_nac(), pv.ibgp)
-    docs: dict[str, dict] = {
-        GLOBAL: {"vxlan": {"fabric": keep(p.fabric.to_nac(), pv.fabric), "global": keep({"ibgp": ibgp}, pv.global_extra)}},
-        UNDERLAY: {"vxlan": {"underlay": keep(p.underlay.to_nac(), pv.underlay)}},
-    }
+    fabric = keep({**p.fabric.to_nac(), "type": std.get(p.standard).fabric_type}, pv.fabric)
+    if p.is_vxlan:
+        glob = {"ibgp": keep(p.ibgp.to_nac(), pv.ibgp)}
+    else:  # Non-VXLAN design = NaC External fabric: just the BGP ASN (plus any imported settings)
+        glob = {"external": keep({"bgp_asn": p.ibgp.bgp_asn}, pv.ibgp)}
+    docs: dict[str, dict] = {GLOBAL: {"vxlan": {"fabric": fabric, "global": keep(glob, pv.global_extra)}}}
+    if p.is_vxlan:
+        docs[UNDERLAY] = {"vxlan": {"underlay": keep(p.underlay.to_nac(), pv.underlay)}}
     if p.switches or pv.topology or p.vpc_peers:
         switches = []
         for s in p.switches:
@@ -80,18 +84,18 @@ def build_documents(p: Project) -> dict[str, dict]:
         topo = {"switches": switches, "vpc_peers": [keep(v.to_nac(), pv.vpc_peers.get(v.key)) for v in p.vpc_peers]}
         docs[TOPOLOGY] = {"vxlan": {"topology": keep(topo, pv.topology)}}
 
-    if p.vrfs:
+    if p.vrfs and p.is_vxlan:
         groups = _attach_groups(p, "vrf", {v.vrf_attach_group for v in p.vrfs})
         docs[VRFS] = {"vxlan": {"overlay": {"vrfs": [keep(v.to_nac(), pv.vrfs.get(v.name)) for v in p.vrfs],
                                             "vrf_attach_groups": groups}}}
 
-    if p.networks or pv.overlay:
+    if (p.networks or pv.overlay) and p.is_vxlan:
         groups = _attach_groups(p, "network", {n.network_attach_group for n in p.networks})
         overlay = {"networks": [keep(n.to_nac(), pv.networks.get(n.name)) for n in p.networks],
                    "network_attach_groups": groups}
         docs[NETWORKS] = {"vxlan": {"overlay": keep(overlay, pv.overlay)}}
 
-    if p.vrf_lites or pv.overlay_extensions:
+    if (p.vrf_lites or pv.overlay_extensions) and p.is_vxlan:
         ext = keep({"vrf_lites": [v.to_nac() for v in p.vrf_lites]}, pv.overlay_extensions)
         docs[OVERLAY_EXT] = {"vxlan": {"overlay_extensions": ext}}
 

@@ -164,9 +164,13 @@ def project_from_data(data: dict, default_name: str | None = None) -> ImportResu
         fab_raw["name"] = glob.get("name") or default_name or "fabric1"
     fab_raw.setdefault("type", std.FABRIC_TYPE)
     fabric = model(Fabric, fab_raw, "vxlan.fabric")
+    standard = std.for_fabric_type(fab_raw.get("type"))
+    if standard == "non_vxlan" and ibgp_raw is None:
+        ibgp_raw = glob.pop("external", None)  # External fabric: same handling, written back under `external`
     if ibgp_raw is None:
         found = ", ".join(sorted(glob)) or "nothing"
-        err(f"Only iBGP VXLAN EVPN fabrics can be imported: `vxlan.global.ibgp` is missing (found {found}).")
+        err(f"Only iBGP VXLAN EVPN and External fabrics can be imported: `vxlan.global.ibgp` (or `external`) "
+            f"is missing (found {found}).")
         return res
     pv["global_extra"] = glob
     ibgp_known, pv["ibgp"] = _split(ibgp_raw, _fields(GlobalIbgp))
@@ -323,7 +327,19 @@ def project_from_data(data: dict, default_name: str | None = None) -> ImportResu
         interfaces=interfaces,
         vrf_lites=vrf_lites,
         preserved=Preserved(**pv),
+        standard=standard,
     )
+    supers = [s for s in switches if s.role == "super_spine"]
+    if standard == "dc" and supers:
+        res.project.super_spines = len(supers) if len(supers) in std.SUPER_SPINE_COUNTS else None
+        res.notes.append(f"Found {len(supers)} super spine(s): " + (
+            "the DC super spine layer is turned on." if res.project.super_spines else
+            f"the DC standard allows {' or '.join(map(str, std.SUPER_SPINE_COUNTS))}, so the layer is left off; "
+            "fix the count and turn it on on the Fabric page."))
+    if standard == "non_vxlan":
+        res.notes.append("This is an External fabric, so it uses the Non-VXLAN design standard.")
+    else:
+        res.notes.append("Imported as a DC Fabric; if this is a DMZ fabric, change the standard on the Fabric page.")
 
     borders = [s for s in switches if s.role == "border"]
     if borders:

@@ -2,7 +2,7 @@ import streamlit as st
 from pydantic import ValidationError
 
 from nacbuilder import standards as std
-from nacbuilder.defaults import generate_switches
+from nacbuilder.defaults import generate_external_switches, generate_switches
 from nacbuilder.models import ROLES
 from nacbuilder.tabular import SWITCH_COLS, switch_from_row, switch_to_row
 from nacbuilder.ui import TABLE_HELP, build_rows, csv_import, fmt_errors, frame, key, project, records, save, section_issues, show_errors
@@ -10,11 +10,20 @@ from nacbuilder.ui import TABLE_HELP, build_rows, csv_import, fmt_errors, frame,
 p = project()
 
 st.title("Switches")
-st.caption("Spines, leafs and borders with their management addresses → `topology_switches.nac.yaml`")
-
-counts = {"Spines": sum(s.role == "spine" for s in p.switches), "Leafs": sum(s.role == "leaf" for s in p.switches)}
-counts |= {f"{v} borders": sum(s.border_set == k for s in p.switches) for k, v in std.BORDER_SETS.items()}
-targets = {"Spines": std.SPINE_COUNT} | {f"{v} borders": std.BORDERS_PER_SET for v in std.BORDER_SETS.values()}
+S = std.get(p.standard)
+if S.vxlan:
+    st.caption(f"{S.label}: spines, leafs and borders with their management addresses → `topology_switches.nac.yaml`")
+    counts = {"Super spines": sum(s.role == "super_spine" for s in p.switches)} if p.has_super_spines else {}
+    counts |= {"Spines": sum(s.role == "spine" for s in p.switches), "Leafs": sum(s.role == "leaf" for s in p.switches)}
+    counts |= {f"{v} borders": sum(s.border_set == k for s in p.switches) for k, v in S.border_sets.items()}
+    targets = {"Super spines": p.super_spines, "Spines": S.spine_count}
+    targets |= {f"{v} borders": S.borders_per_set for v in S.border_sets.values()}
+else:
+    st.caption(f"{S.label}: core and edge routers with their management addresses → `topology_switches.nac.yaml`")
+    counts = {"Core routers": sum(s.role == "core_router" for s in p.switches),
+              "Edge routers": sum(s.role == "edge_router" for s in p.switches),
+              "Other roles": sum(s.role not in S.roles for s in p.switches)}
+    targets = {"Other roles": 0}
 for col, (label, n) in zip(st.columns(len(counts)), counts.items()):
     want = targets.get(label)
     col.metric(label, n, delta=None if want is None or n == want else f"need {want}", delta_color="inverse")
@@ -24,14 +33,23 @@ to_row = switch_to_row
 from_row = switch_from_row
 
 with st.expander("Quick generate", expanded=not p.switches, icon=":material/bolt:"):
-    st.caption(
-        f"Builds the standard layout: {std.SPINE_COUNT} spines (route reflectors), your leafs, and "
-        f"{std.BORDERS_PER_SET} borders each for {', '.join(std.BORDER_SETS)}."
-    )
+    if S.vxlan:
+        layer = (f"{p.super_spines} super spines (route reflectors), {S.spine_count} spines"
+                 if p.has_super_spines else f"{S.spine_count} spines (route reflectors)")
+        st.caption(
+            f"Builds the {S.label} layout: {layer}, your leafs, and "
+            f"{S.borders_per_set} borders each for {', '.join(S.border_sets)}."
+        )
+    else:
+        st.caption(f"Builds a {S.label}: core routers (`core_router`) and edge routers (`edge_router`).")
     with st.form("generate"):
-        c1, c2 = st.columns(2)
-        prefix = c1.text_input("Name prefix", "dc1")
-        leafs = c2.number_input("Leafs", 0, 128, 4)
+        c1, c2, c3 = st.columns(3)
+        prefix = c1.text_input("Name prefix", "dc1" if S.vxlan else "ext1")
+        if S.vxlan:
+            leafs = c2.number_input("Leafs", 0, 128, 4)
+        else:
+            core = c2.number_input("Core routers", 0, 64, 2)
+            edge = c3.number_input("Edge routers", 0, 64, 2)
         c5, c6, c7 = st.columns(3)
         first_ip = c5.text_input("First management IP", "10.1.1.11", help="Each next switch gets the next address.")
         mask = c6.number_input("Management mask length", 8, 30, 24)
@@ -39,7 +57,11 @@ with st.expander("Quick generate", expanded=not p.switches, icon=":material/bolt
         go = st.form_submit_button("Generate (replaces the table)")
     if go:
         try:
-            sw = generate_switches(prefix, leafs, first_ip or None, gw or None, mask)
+            if S.vxlan:
+                sw = generate_switches(prefix, leafs, first_ip or None, gw or None, mask,
+                                       super_spines=p.super_spines if p.has_super_spines else 0)
+            else:
+                sw = generate_external_switches(prefix, core, edge, first_ip or None, gw or None, mask)
             save(f"Generated {len(sw)} switches", switches=sw)
         except (ValidationError, ValueError) as e:
             show_errors(fmt_errors(e) if isinstance(e, ValidationError) else [str(e)])

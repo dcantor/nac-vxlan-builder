@@ -30,13 +30,15 @@ def check_project(p: Project) -> list[Issue]:
     def warn(section, msg):
         issues.append(Issue("warning", section, msg))
 
+    S = std.get(p.standard)
+
     # --- switches -------------------------------------------------------------
     sw = p.switches
     by_name = {s.name: s for s in sw}
     spines = [s for s in sw if s.role in SPINE_ROLES]
     if not sw:
         warn("Switches", "No switches defined yet.")
-    else:
+    elif S.vxlan:
         if not spines:
             err("Switches", "The fabric needs at least one spine.")
         if not any(s.role in ATTACHABLE_ROLES for s in sw):
@@ -63,36 +65,61 @@ def check_project(p: Project) -> list[Issue]:
             err("Switches", f"{s.name}: management IP equals its gateway.")
 
     # --- design standard (standards.py) ---------------------------------------
-    if p.fabric.type != std.FABRIC_TYPE:
-        err("Fabric", f"Standard: the overlay must be BGP EVPN ({std.FABRIC_TYPE} with iBGP).")
-    if p.ibgp.route_reflectors != std.ROUTE_REFLECTORS:
-        err("Fabric", f"Standard: {std.ROUTE_REFLECTORS} route reflectors required, found {p.ibgp.route_reflectors}.")
-    if p.underlay.general.routing_protocol != std.UNDERLAY_PROTOCOL:
-        err("Underlay", f"Standard: the underlay must be OSPF, found {p.underlay.general.routing_protocol}.")
-    if sw:
-        if len(spines) != std.SPINE_COUNT:
-            err(
-                "Switches",
-                f"Standard: exactly {std.SPINE_COUNT} spines (all route reflectors) required, found {len(spines)}.",
-            )
-        for s in spines:
-            if s.role != "spine":
-                err("Switches", f"Standard: {s.name} must have role spine, not {s.role}.")
-        for key_, label in std.BORDER_SETS.items():
-            members = [s.name for s in sw if s.border_set == key_]
-            if len(members) != std.BORDERS_PER_SET:
+    if S.vxlan:
+        if p.fabric.type != S.fabric_type:
+            err("Fabric", f"Standard: the overlay must be BGP EVPN ({S.fabric_type} with iBGP).")
+        if not p.has_super_spines and p.ibgp.route_reflectors != S.route_reflectors:
+            err("Fabric", f"Standard: {S.route_reflectors} route reflectors required, found {p.ibgp.route_reflectors}.")
+        if p.underlay.general.routing_protocol != S.underlay_protocol:
+            err("Underlay", f"Standard: the underlay must be OSPF, found {p.underlay.general.routing_protocol}.")
+        supers = [s for s in sw if s.role == "super_spine"]
+        plain = [s for s in spines if s.role != "super_spine"]
+        if p.has_super_spines and p.ibgp.route_reflectors != p.super_spines:
+            err("Fabric", f"Standard: with a super spine layer the {p.super_spines} super spines are the route "
+                          f"reflectors (route_reflectors: {p.super_spines}), found {p.ibgp.route_reflectors}.")
+        if sw:
+            rr_note = "" if p.has_super_spines else " (all route reflectors)"
+            if len(plain) != S.spine_count:
                 err(
                     "Switches",
-                    f"Standard: the {label.lower()} border set needs {std.BORDERS_PER_SET} switches, "
-                    f"found {len(members)}{': ' + ', '.join(members) if members else ''}.",
+                    f"Standard: exactly {S.spine_count} spines{rr_note} required, found {len(plain)}.",
                 )
+            for s in plain:
+                if s.role != "spine":
+                    err("Switches", f"Standard: {s.name} must have role spine, not {s.role}.")
+            if p.has_super_spines:
+                if len(supers) != p.super_spines:
+                    err("Switches", f"Standard: the super spine layer needs {p.super_spines} super spines "
+                                    f"(route reflectors), found {len(supers)}.")
+            elif supers:
+                where = ("turn on the super spine layer on the Fabric page" if p.standard == "dc"
+                         else f"a {S.label} has no super spine layer")
+                err("Switches", f"Standard: {', '.join(s.name for s in supers)} {'is a' if len(supers) == 1 else 'are'} "
+                                f"super spine{'s' if len(supers) > 1 else ''}; {where}.")
+            for key_, label in S.border_sets.items():
+                members = [s.name for s in sw if s.border_set == key_]
+                if len(members) != S.borders_per_set:
+                    err(
+                        "Switches",
+                        f"Standard: the {label.lower()} border set needs {S.borders_per_set} switches, "
+                        f"found {len(members)}{': ' + ', '.join(members) if members else ''}.",
+                    )
+            for s in sw:
+                if s.border_set and s.role != "border":
+                    err("Switches", f"Standard: {s.name} is in the {s.border_set} border set, so its role must be border.")
+                elif s.role == "border" and not s.border_set:
+                    err("Switches", f"Standard: border {s.name} must be in a border set (client, internal or external).")
+                elif "border" in s.role and s.role != "border" and s.role not in SPINE_ROLES:
+                    err("Switches", f"Standard: role {s.role} on {s.name} isn't part of the design; use border.")
+
+    else:  # Non-VXLAN design (NaC External fabric)
         for s in sw:
-            if s.border_set and s.role != "border":
-                err("Switches", f"Standard: {s.name} is in the {s.border_set} border set, so its role must be border.")
-            elif s.role == "border" and not s.border_set:
-                err("Switches", f"Standard: border {s.name} must be in a border set (client, internal or external).")
-            elif "border" in s.role and s.role != "border" and s.role not in SPINE_ROLES:
-                err("Switches", f"Standard: role {s.role} on {s.name} isn't part of the design; use border.")
+            if S.roles and s.role not in S.roles:
+                err("Switches", f"Standard: {s.name} is a {s.role}; a {S.label} uses {' or '.join(S.roles)}.")
+        for what, items in (("VRF", p.vrfs), ("network", p.networks), ("VRF-lite profile", p.vrf_lites)):
+            if items:
+                err("Fabric", f"Standard: a {S.label} has no {what}s, so {len(items)} {what}(s) won't be written. "
+                              "Remove them (Day-2 tasks → Decommission) or pick a VXLAN standard.")
 
     # --- underlay -------------------------------------------------------------
     u = p.underlay
@@ -219,7 +246,7 @@ def check_project(p: Project) -> list[Issue]:
             warn("vPC", f"{label}: peer-link has {len(links1)} port(s) on {v.peer1} but {len(links2)} on {v.peer2}.")
     for d in _dups(v.domain_id for v in p.vpc_peers):
         err("vPC", f"Duplicate vPC domain ID {d}.")
-    for key_, label in std.BORDER_SETS.items():
+    for key_, label in (S.border_sets if S.vxlan else {}).items():
         members = sorted(s.name for s in sw if s.border_set == key_)
         if len(members) == 2 and not any({v.peer1, v.peer2} == set(members) for v in p.vpc_peers):
             warn("vPC", f"The {label.lower()} border pair ({', '.join(members)}) isn't a vPC pair.")
@@ -318,6 +345,10 @@ def check_project(p: Project) -> list[Issue]:
                     warn("VRF-lite", f"{label}: neighbor {peer.address} on {s.name} isn't in any of its VRF-lite interface subnets.")
                 if str(peer.remote_as) == p.ibgp.bgp_asn:
                     err("VRF-lite", f"{label}: neighbor {peer.address} uses the fabric's own ASN; VRF-lite here is eBGP.")
+
+    if not S.vxlan:
+        skip = {"Underlay", "Attach groups", "VRFs", "Networks", "VRF-lite"}
+        issues[:] = [i for i in issues if i.section not in skip]
 
     # --- settings kept from an imported fabric --------------------------------
     pv = p.preserved

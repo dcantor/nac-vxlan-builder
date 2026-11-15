@@ -32,6 +32,8 @@ class UplinkPlan:
 
     leaf_uplinks: list[str]  # ports on every leaf/border, one per spine in spine order
     spine_first_port: str = "Ethernet1/1"  # spine port for the first leaf; the next leaf uses the next port
+    spine_uplinks: list[str] = field(default_factory=list)  # super spine layer: ports on every spine, one per super spine
+    super_first_port: str = "Ethernet1/1"  # super spine port for the first spine; the next spine uses the next port
 
 
 @dataclass
@@ -50,7 +52,9 @@ def _sort_ports(rows: list[dict]) -> list[dict]:
 def build_cabling(p: Project, uplinks: UplinkPlan | None = None) -> CablingPlan:
     plan = CablingPlan()
     roles = {s.name: s.role for s in p.switches}
-    spines = sorted((s.name for s in p.switches if s.role in SPINE_ROLES), key=_natural)
+    super_roles = {"super_spine", "border_super_spine", "border_gateway_super_spine"}
+    supers = sorted((s.name for s in p.switches if s.role in super_roles), key=_natural)
+    spines = sorted((s.name for s in p.switches if s.role in SPINE_ROLES and s.role not in super_roles), key=_natural)
     lower = [s.name for s in p.switches if s.role not in SPINE_ROLES]
     sets = {s.name: s.border_set for s in p.switches}
     order = list(std.BORDER_SETS)
@@ -162,17 +166,47 @@ def build_cabling(p: Project, uplinks: UplinkPlan | None = None) -> CablingPlan:
                 port_row(leaf, lp, "fabric uplink (planned)", connects_to=f"{spine} {sp}")
                 port_row(spine, sp, "fabric downlink (planned)", connects_to=f"{leaf} {lp}")
 
+    # planned super spine links (5-stage fabric)
+    if uplinks and supers and spines and uplinks.spine_uplinks:
+        ups = uplinks.spine_uplinks
+        if len(ups) < len(supers):
+            plan.conflicts.append(f"{len(supers)} super spines but only {len(ups)} uplink port(s) per spine; "
+                                  "super spines beyond that get no planned link.")
+        m = re.fullmatch(r"(?i)((?:e|eth|ethernet)(?:\d+/)+)(\d+)", uplinks.super_first_port.strip())
+        if not m:
+            raise ValueError(f"super spine first port '{uplinks.super_first_port}' isn't like Ethernet1/1")
+        prefix, first = m[1], int(m[2])
+        for si, spine in enumerate(spines):
+            for ki, sup in enumerate(supers[: len(ups)]):
+                sp_port, su_port = ups[ki], f"{prefix}{first + si}"
+                plan.links.append({"type": "super spine link (planned)", "a_switch": spine, "a_port": sp_port,
+                                   "b_device": sup, "b_port": su_port, "detail": "spine to super spine; ND discovers it",
+                                   "source": "planned"})
+                claim(spine, sp_port, "super spine uplink")
+                claim(sup, su_port, "super spine downlink")
+                port_row(spine, sp_port, "super spine uplink (planned)", connects_to=f"{sup} {su_port}")
+                port_row(sup, su_port, "spine downlink (planned)", connects_to=f"{spine} {sp_port}")
+
     plan.ports = _sort_ports(plan.ports)
     return plan
 
 
-def uplink_plan_for(p: Project, first_leaf_uplink: str = "Ethernet1/49", spine_first_port: str = "Ethernet1/1") -> UplinkPlan:
-    """Default: one uplink per spine starting at `first_leaf_uplink` (e.g. 4 spines -> Ethernet1/49-52)."""
-    n = sum(s.role in SPINE_ROLES for s in p.switches) or 1
-    m = re.fullmatch(r"(?i)((?:e|eth|ethernet)(?:\d+/)+)(\d+)", first_leaf_uplink.strip())
+def _port_run(first: str, n: int) -> list[str]:
+    m = re.fullmatch(r"(?i)((?:e|eth|ethernet)(?:\d+/)+)(\d+)", first.strip())
     if not m:
-        raise ValueError(f"'{first_leaf_uplink}' isn't like Ethernet1/49")
-    return UplinkPlan(expand_ports(f"{m[1]}{m[2]}-{int(m[2]) + n - 1}") if n > 1 else [first_leaf_uplink], spine_first_port)
+        raise ValueError(f"'{first}' isn't like Ethernet1/49")
+    return expand_ports(f"{m[1]}{m[2]}-{int(m[2]) + n - 1}") if n > 1 else [first]
+
+
+def uplink_plan_for(p: Project, first_leaf_uplink: str = "Ethernet1/49", spine_first_port: str = "Ethernet1/1",
+                    first_spine_uplink: str = "Ethernet1/61", super_first_port: str = "Ethernet1/1") -> UplinkPlan:
+    """Default: one uplink per spine starting at `first_leaf_uplink` (e.g. 4 spines -> Ethernet1/49-52) and, with
+    super spines, one uplink per super spine on every spine starting at `first_spine_uplink`."""
+    super_roles = {"super_spine", "border_super_spine", "border_gateway_super_spine"}
+    n = sum(s.role in SPINE_ROLES and s.role not in super_roles for s in p.switches) or 1
+    k = sum(s.role in super_roles for s in p.switches)
+    return UplinkPlan(_port_run(first_leaf_uplink, n), spine_first_port,
+                      _port_run(first_spine_uplink, k) if k else [], super_first_port)
 
 
 # --- export ---------------------------------------------------------------------------

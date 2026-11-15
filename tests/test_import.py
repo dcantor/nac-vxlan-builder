@@ -219,7 +219,7 @@ def test_find_fabric_dirs(tmp_path):
     "files, message",
     [
         ({"a.yaml": "vxlan:\n  fabric: {name: f, type: eBGP_VXLAN}\n  global:\n    ebgp: {spine_bgp_asn: '1'}\n"},
-         "Only iBGP VXLAN EVPN fabrics"),
+         "Only iBGP VXLAN EVPN and External fabrics"),
         ({"a.yaml": "vxlan:\n  global:\n    ibgp: {bgp_asn: !env ASN}\n"}, "!env tag isn't supported"),
         ({"a.yaml": "vxlan: [\n"}, "a.yaml"),
         ({"a.yaml": "foo: 1\n"}, "No YAML file with a top-level `vxlan:` key"),

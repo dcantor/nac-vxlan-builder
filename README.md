@@ -215,19 +215,38 @@ Key names for these sections follow Cisco's `cisco.nac_dc_vxlan` 0.9.1 templates
 
 Then deploy from the NaC repo as usual, e.g. `ansible-playbook -i inventory.yaml vxlan.yaml`.
 
-## Design standard
+## Design standards
 
-Every fabric must follow the house standard in `nacbuilder/standards.py`. The UI locks
-these fields, and the checks flag anything that breaks them as an error:
+Pick the fabric's standard at the top of the **Fabric** page. It decides the NaC fabric type,
+which rules the checks enforce, and which pages appear:
 
-- **Overlay:** BGP EVPN (iBGP `VXLAN_EVPN` fabric).
-- **Underlay:** OSPF.
-- **Spines:** exactly 4 spines with role `spine`. All 4 are route reflectors (`route_reflectors: 4`).
-- **Borders:** three pairs with role `border`: **client**, **internal** and **external**.
-  Set each border's pair in the Switches table's *Border set* column. The NaC schema has
-  no field for this, so the pair is stored in the project file but not written to the YAML.
+| Standard | NaC fabric type | Rules |
+|---|---|---|
+| **DC Fabric** | `VXLAN_EVPN` (iBGP) | BGP EVPN overlay, OSPF underlay, exactly 4 spines (role `spine`) that are all route reflectors, and three border pairs (role `border`): **client**, **internal** and **external** |
+| **DC Fabric + super spine layer** (option) | `VXLAN_EVPN` (iBGP) | As DC Fabric, plus 2 or 4 super spines (role `super_spine`) above the 4 spines; the super spines are the route reflectors (`route_reflectors` = 2 or 4) |
+| **DMZ Fabric** | `VXLAN_EVPN` (iBGP) | Same rules as DC Fabric (no super spine option) |
+| **Non-VXLAN design** | `External` | Core and edge routers (`core_router` / `edge_router`) with a BGP ASN (`vxlan.global.external`), interfaces and vPC pairs. No underlay, VRFs, networks or VRF-lite: those pages and Day-2 tasks are hidden, and any leftovers are flagged instead of written |
 
-**Quick generate** on the Switches page builds this layout for you:
+- **Super spine layer (DC Fabric only):** turn on **Add a super spine layer** and pick 2 or 4. It affects:
+  - the route reflector count;
+  - **Quick generate**, which adds `<prefix>-superspine1..N`;
+  - the topology diagram, which gets its own super spine row;
+  - the cabling plan, which lays out spine-to-super-spine links: spine uplink k goes to super
+    spine k (default from `Ethernet1/61`), and each super spine uses the next port per spine.
+
+  Imported fabrics with 2 or 4 super spines have it turned on automatically.
+- **Where it's stored:** the standard is kept in the project file, not the YAML.
+- **On import:** an `External` fabric becomes Non-VXLAN design. A `VXLAN_EVPN` fabric starts as
+  DC Fabric; switch it to DMZ on the Fabric page if needed.
+- **Switching standards:** this changes only what's written and checked. Switching back restores
+  everything.
+- **Locked fields:** the UI locks the fields each standard fixes.
+- **Cisco's rules:** they run the sets for the fabric type: `common` + `ibgp_vxlan` + `common_vxlan`
+  for VXLAN, and `common` + `external` for External.
+- **Border sets:** set each border's pair in the Switches table's *Border set* column (DC/DMZ).
+  The NaC schema has no field for this, so it's stored in the project file only.
+
+**Quick generate** on the Switches page builds the DC/DMZ layout for you (or core and edge routers for a Non-VXLAN design):
 `<prefix>-spine1..4`, `<prefix>-leaf1..N`, `<prefix>-border-client1..2`,
 `-border-internal1..2` and `-border-external1..2`. On the Attach groups page,
 **+ border groups** creates `border-client`, `border-internal` and `border-external`.

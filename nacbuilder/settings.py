@@ -9,7 +9,12 @@ from pathlib import Path
 
 CONFIG = Path.home() / ".nac-vxlan-builder.json"
 COLLECTION = Path("ansible_collections/cisco/nac_dc_vxlan")
-RULE_SETS = ("common", "common_vxlan", "ibgp_vxlan")  # what the collection runs for an iBGP VXLAN_EVPN fabric
+# What the collection's own validator runs per fabric type (plugins/action/common/nac_dc_validate.py).
+RULE_SETS_BY_TYPE = {
+    "VXLAN_EVPN": ("common", "ibgp_vxlan", "common_vxlan"),
+    "External": ("common", "external"),
+}
+RULE_SETS = RULE_SETS_BY_TYPE["VXLAN_EVPN"]
 
 
 @dataclass
@@ -48,20 +53,23 @@ def find_collection_rules() -> Path | None:
     return None
 
 
-def rule_dirs(path: Path) -> list[Path]:
+def rule_dirs(path: Path, fabric_type: str = "VXLAN_EVPN") -> list[Path]:
     """The collection's rules folder has one subfolder per fabric type; anything else is used as-is."""
     path = Path(path).expanduser()
-    subs = [path / s for s in RULE_SETS if (path / s).is_dir()]
-    return subs or ([path] if path.is_dir() else [])
+    sets = RULE_SETS_BY_TYPE.get(fabric_type, RULE_SETS)
+    subs = [path / s for s in sets if (path / s).is_dir()]
+    if any((path / x).is_dir() for xs in RULE_SETS_BY_TYPE.values() for x in xs):
+        return subs  # it's the collection's rules folder: only this fabric type's sets
+    return [path] if path.is_dir() else []
 
 
-def resolve_rules(s: Settings, platform: str | None = None) -> list[Path]:
+def resolve_rules(s: Settings, platform: str | None = None, fabric_type: str = "VXLAN_EVPN") -> list[Path]:
     if not s.use_rules or not rules_supported(platform):
         return []
     if s.rules_path:
-        return rule_dirs(Path(s.rules_path))
+        return rule_dirs(Path(s.rules_path), fabric_type)
     found = find_collection_rules()
-    return rule_dirs(found) if found else []
+    return rule_dirs(found, fabric_type) if found else []
 
 
 # --- platform support for Cisco's rules ------------------------------------------------
