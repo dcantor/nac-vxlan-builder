@@ -5,8 +5,9 @@ import streamlit as st
 from pydantic import ValidationError
 
 from nacbuilder import hardware as hw
+from nacbuilder import standards as std
 from nacbuilder.checks import check_project
-from nacbuilder.defaults import vrf_lite_uplink, expand_ports, model_for
+from nacbuilder.defaults import expand_ports, model_for, model_key, vrf_lite_uplink
 from nacbuilder.diffing import compare_projects
 from nacbuilder.models import ATTACHABLE_ROLES, Project
 from nacbuilder.tasks import (
@@ -27,7 +28,7 @@ from nacbuilder.tasks import (
     next_mgmt_ips,
     onboard_leaf_pair,
 )
-from nacbuilder.ui import fmt_errors, key, project, records, set_project, show_errors
+from nacbuilder.ui import LOCKED, fmt_errors, key, project, records, set_project, show_errors
 
 BORDER_ROLES = ("border", "border_spine", "border_gateway", "border_gateway_spine")
 
@@ -297,8 +298,14 @@ if p.is_vxlan:
             fabric_peering = c1.toggle("Fabric peering (no physical peer link)")
             leaf_models = hw.models_for("leaf")
             want = model_for(p.role_models, "leaf", onb_role) or hw.suggested().get("leaf")
-            leaf_model = c1.selectbox("Model", leaf_models, index=leaf_models.index(want) if want in leaf_models else 0,
-                                      key="onb_model")
+            fixed = std.locked_model(std.get(p.standard), model_key("leaf", onb_role))
+            if fixed:
+                want = fixed
+                leaf_model = c1.selectbox("Model", [fixed], disabled=True, key="onb_model_locked",
+                                          help=LOCKED)
+            else:
+                leaf_model = c1.selectbox("Model", leaf_models,
+                                          index=leaf_models.index(want) if want in leaf_models else 0, key="onb_model")
             peerlink = c2.text_input("Peer-link ports (blank = the model's)", "",
                                      placeholder=", ".join(hw.get(want).peer_link()) if hw.get(want) else "Ethernet1/53, Ethernet1/54")
             st.markdown("**Host ports**: one vPC port-channel per port, same port on both leafs")

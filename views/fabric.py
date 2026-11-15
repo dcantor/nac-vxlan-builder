@@ -3,7 +3,7 @@ from pydantic import ValidationError
 
 from nacbuilder import standards as std
 from nacbuilder.models import Fabric, GlobalIbgp, ManagementServer, SyslogServer
-from nacbuilder.ui import build_rows, fmt_errors, frame, key, project, records, save, section_issues, show_errors
+from nacbuilder.ui import LOCKED, build_rows, fmt_errors, frame, key, project, records, section_issues, set_project, show_errors
 
 p = project()
 g = p.ibgp
@@ -36,6 +36,18 @@ if picked != p.standard:
         * (not S.vxlan),
         icon=":material/swap_horiz:",
     )
+
+locks = std.lock_mismatches(p) if picked == p.standard else []
+if locks:
+    st.error("This fabric doesn't follow values its design standard locks:\n\n"
+             + "\n".join(f"- {label}: {have or 'none'} (locked to {want or 'none'})" for _, label, have, want in locks),
+             icon=":material/lock:")
+    if st.button("Apply locked values", icon=":material/lock:", type="primary"):
+        set_project(std.apply_locks(p), f"Applied {len(locks)} locked value(s) from {S.label}")
+        st.rerun()
+elif S.locked:
+    st.caption(":material/lock: Locked by the standard (grayed out on these pages): "
+               + ", ".join(std.LOCKABLE[k] for k in S.locked if S.vxlan or k not in std.VXLAN_ONLY))
 
 super_n = None
 if S.super_spine_counts:
@@ -73,21 +85,35 @@ with st.form("fabric"):
         "Fabric type",
         f"{S.fabric_type}: BGP EVPN overlay (iBGP)" if S.vxlan else f"{S.fabric_type}: no VXLAN overlay",
         disabled=True,
-        help="Set by the design standard.",
+        help=LOCKED,
     )
-    asn = c1.text_input("BGP ASN", g.bgp_asn, help="Plain (65001) or asdot (65000.1).")
+    D = S.defaults
+    if S.is_locked("bgp_asn"):
+        asn = c1.text_input("BGP ASN", D.bgp_asn, disabled=True, help=LOCKED)
+    else:
+        asn = c1.text_input("BGP ASN", g.bgp_asn, help="Plain (65001) or asdot (65000.1).")
     mac, om, gc = g.anycast_gateway_mac, g.overlay_mode or "cli", g.greenfield_cleanup or "(not set)"
     if S.vxlan:
-        c2.text_input(
-            "Route reflectors",
-            f"{super_n} (all {super_n} super spines)" if super_n else f"{S.route_reflectors} (all {S.spine_count} spines)",
-            disabled=True,
-            help="Fixed by the design standard: every spine (or super spine, with a super spine layer) is a "
-                 "BGP EVPN route reflector.",
-        )
-        mac = c1.text_input("Anycast gateway MAC", g.anycast_gateway_mac, help="Shared by every leaf's SVI gateways.")
+        if super_n or S.route_reflectors:
+            c2.text_input(
+                "Route reflectors",
+                f"{super_n} (all {super_n} super spines)" if super_n
+                else f"{S.route_reflectors}" + (f" (all {S.spine_count} spines)" if S.spine_count == S.route_reflectors else ""),
+                disabled=True,
+                help="Locked by the design standard: every spine (or super spine, with a super spine layer) is a "
+                     "BGP EVPN route reflector.",
+            )
+        else:
+            rr_count = c2.selectbox("Route reflectors", [2, 4], index=[2, 4].index(g.route_reflectors or 4))
+        if S.is_locked("anycast_gateway_mac"):
+            mac = c1.text_input("Anycast gateway MAC", D.anycast_gateway_mac, disabled=True, help=LOCKED)
+        else:
+            mac = c1.text_input("Anycast gateway MAC", g.anycast_gateway_mac, help="Shared by every leaf's SVI gateways.")
         modes = ["cli", "config-profile"]
-        om = c2.selectbox("Overlay mode", modes, index=modes.index(g.overlay_mode or "cli"))
+        if S.is_locked("overlay_mode"):
+            om = c2.selectbox("Overlay mode", [D.overlay_mode], disabled=True, help=LOCKED)
+        else:
+            om = c2.selectbox("Overlay mode", modes, index=modes.index(g.overlay_mode or "cli"))
         gc_opts = ["(not set)", "Enable", "Disable"]
         gc = c1.selectbox(
             "Greenfield cleanup",
@@ -146,6 +172,7 @@ if submitted:
         label = f"Fabric saved ({S.label})" if picked != p.standard else "Fabric saved"
         if super_n:
             label += f", with {super_n} super spines"
-        save(label, fabric=fabric, ibgp=ibgp, standard=picked, super_spines=super_n)
+        q = p.model_copy(update=dict(fabric=fabric, ibgp=ibgp, standard=picked, super_spines=super_n))
+        set_project(std.apply_locks(q), label)  # locked standard values always win
 
 section_issues("Fabric")

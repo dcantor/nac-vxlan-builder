@@ -303,7 +303,13 @@ which rules the checks enforce, and which pages appear:
   DC Fabric; switch it to DMZ on the Fabric page if needed.
 - **Switching standards:** this changes only what's written and checked. Switching back restores
   everything.
-- **Locked fields:** the UI locks the fields each standard fixes.
+- **Locked fields:** anything the standard sets is shown grayed out on the build pages, so
+  engineers can't change it. That covers constraints (fabric type, underlay protocol, route
+  reflectors, allowed roles, border sets, super spine sizes) and any defaults the developer
+  locks: BGP ASN, anycast gateway MAC, overlay mode, BUM replication, link mask, the underlay IP
+  ranges, leaf roles and hardware models. A fabric that doesn't match (for example one you
+  imported) gets check errors, and **Apply locked values** on the Fabric page fixes it. Saving the
+  Fabric page always applies the locks.
 - **Cisco's rules:** they run the sets for the fabric type: `common` + `ibgp_vxlan` + `common_vxlan`
   for VXLAN, and `common` + `external` for External.
 - **Border sets:** set each border's pair in the Switches table's *Border set* column (DC/DMZ).
@@ -328,6 +334,11 @@ locked until you tick *I understand: let me edit the design standards*.
 - **Defaults** (what **New** in the sidebar starts with): BGP ASN, anycast gateway MAC, overlay
   and replication mode, link mask, the four underlay IP ranges, the first L3/L2 VNI and VRF/network
   VLAN for new VRFs and networks, default leaf roles, and a default hardware model per role.
+- **Locked defaults:** pick which defaults engineers can't change; they see them grayed out.
+  Unlocked defaults are only starting values. The built-in DC and DMZ standards lock the anycast
+  gateway MAC, overlay mode, BUM replication and link mask. VNI/VLAN pool starts only number new
+  VRFs and networks, so they can't be locked.
+- **Constraints are always locked** when set; *(not enforced)* lets engineers choose.
 - **Saving:** each standard is checked first (ASN, MAC, IP ranges, keys), then saved to
   `nacbuilder/data/standards.yaml`. Review that file's diff and commit it to share the change.
   Anything missing from the file falls back to the built-in value.

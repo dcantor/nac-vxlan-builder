@@ -69,7 +69,8 @@ for tab, key in zip(tabs, std.KEYS):
         summary = c2.text_input("Summary (shown on the Fabric page)", S.summary, disabled=not unlocked)
 
         st.subheader("Constraints", divider="gray")
-        st.caption("Rules the checks enforce for fabrics using this standard. '(not enforced)' or 0 turns a rule off.")
+        st.caption("Rules the checks enforce for fabrics using this standard; engineers see them grayed out. "
+                   "'(not enforced)', 0 or empty turns a rule off and lets engineers choose.")
         c1, c2, c3, c4 = st.columns(4)
         ftype = c1.selectbox("Fabric type", list(std.FABRIC_TYPES), index=list(std.FABRIC_TYPES).index(S.fabric_type),
                              disabled=not unlocked, help="External = Non-VXLAN (no underlay, VRFs, networks)")
@@ -126,6 +127,14 @@ for tab, key in zip(tabs, std.KEYS):
             models[role] = col.selectbox(role.replace("_", " "), opts, index=opts.index(cur) if cur in opts else 0,
                                          key=f"m_{key}_{role}", disabled=not unlocked)
 
+        locked = st.multiselect(
+            "Locked defaults: engineers see these grayed out and can't change them",
+            list(std.LOCKABLE), default=list(S.locked), format_func=std.LOCKABLE.get, key=f"lock_{key}",
+            disabled=not unlocked,
+            help="Unlocked defaults are only starting values for a new fabric. Constraints above are always "
+                 "locked when set. VNI/VLAN pool starts only number new VRFs and networks, so they can't be locked.",
+        )
+
         save_it = st.form_submit_button("Save standard", type="primary", disabled=not unlocked)
 
     if save_it:
@@ -143,7 +152,7 @@ for tab, key in zip(tabs, std.KEYS):
                     S, label=label.strip() or S.label, summary=summary.strip(), fabric_type=ftype,
                     underlay_protocol=None if underlay == NONE else underlay, spine_count=int(spines) or None,
                     route_reflectors=None if rr == NONE else rr, super_spine_counts=supers, roles=roles or None,
-                    border_sets=border_sets, borders_per_set=int(per_set),
+                    border_sets=border_sets, borders_per_set=int(per_set), locked=tuple(locked),
                     defaults=dict(bgp_asn=validate_asn(asn), anycast_gateway_mac=validate_mac(mac), overlay_mode=om,
                                   replication_mode=rep, subnet_mask=mask, routing_loopback_range=lo,
                                   vtep_loopback_range=vtep, rp_loopback_range=rp, fabric_link_range=links,

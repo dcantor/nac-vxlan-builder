@@ -34,6 +34,9 @@ def undo_stack() -> UndoStack:
     return st.session_state.undo
 
 
+LOCKED = "Locked by the design standard (Design standards page)."
+
+
 def set_project(p: Project, flash: str | None = None, record: bool = True) -> None:
     """Replace the project. Unless record=False (undo/redo), the change is snapshotted to history."""
     if record and p != st.session_state.get("project"):

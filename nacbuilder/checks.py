@@ -34,6 +34,13 @@ def check_project(p: Project) -> list[Issue]:
 
     S = std.get(p.standard)
 
+    # --- locked design-standard values ----------------------------------------
+    for name, label, have, want in std.lock_mismatches(p):
+        section = ("Fabric" if name in ("bgp_asn", "anycast_gateway_mac", "overlay_mode")
+                   else "Switches" if name in ("leaf_roles", "role_models") else "Underlay")
+        err(section, f"Standard: {label} is locked to {want or 'none'}, found {have or 'none'}. "
+                     "Use 'Apply locked values' on the Fabric page.")
+
     # --- switches -------------------------------------------------------------
     sw = p.switches
     by_name = {s.name: s for s in sw}

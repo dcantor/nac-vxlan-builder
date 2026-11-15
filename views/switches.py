@@ -6,7 +6,8 @@ from nacbuilder import standards as std
 from nacbuilder.defaults import generate_external_switches, generate_switches, model_key
 from nacbuilder.models import ROLES, Project
 from nacbuilder.tabular import SWITCH_COLS, switch_from_row, switch_to_row
-from nacbuilder.ui import TABLE_HELP, build_rows, csv_import, fmt_errors, frame, key, project, records, save, section_issues, show_errors
+from nacbuilder.standards import locked_model
+from nacbuilder.ui import LOCKED, TABLE_HELP, build_rows, csv_import, fmt_errors, frame, key, project, records, save, section_issues, set_project, show_errors
 
 p = project()
 
@@ -44,10 +45,13 @@ if S.vxlan:
         st.caption("Optional sub-roles for leafs, such as compute and storage. Each leaf gets one (Leaf role column). "
                    "Quick generate, hardware models, vPC pairing, attach groups and the diagram then work per leaf "
                    "role. Leaf roles are kept in the project, not written to the YAML.")
+        lr_locked = S.is_locked("leaf_roles")
         with st.form("leaf_roles"):
-            roles_txt = st.text_input("Leaf roles (comma separated; blank = none)", ", ".join(p.leaf_roles),
-                                      placeholder="compute, storage")
-            set_roles = st.form_submit_button("Save leaf roles")
+            roles_txt = st.text_input("Leaf roles (comma separated; blank = none)",
+                                      ", ".join(S.defaults.leaf_roles if lr_locked else p.leaf_roles),
+                                      placeholder="compute, storage", disabled=lr_locked,
+                                      help=LOCKED if lr_locked else None)
+            set_roles = st.form_submit_button("Save leaf roles", disabled=lr_locked)
         if set_roles:
             try:
                 new_roles = Project(leaf_roles=roles_txt).leaf_roles
@@ -72,9 +76,13 @@ with st.expander("Hardware: Nexus 9300 models", expanded=not p.role_models, icon
         cols = st.columns(len(roles))
         for col, role in zip(cols, roles):
             options = hw.models_for(role.split(":")[0])
-            cur = picks_default[role] if picks_default[role] in options else options[0]
             label = p.leaf_role_label(role.split(":")[1]) if ":" in role else role.replace("_", " ").title()
-            picks[role] = col.selectbox(label, options, index=options.index(cur), key=f"hw_{role}")
+            fixed = locked_model(S, role)
+            if fixed:
+                picks[role] = col.selectbox(label, [fixed], disabled=True, key=f"hw_{role}_locked", help=LOCKED)
+            else:
+                cur = picks_default[role] if picks_default[role] in options else options[0]
+                picks[role] = col.selectbox(label, options, index=options.index(cur), key=f"hw_{role}")
             col.caption(hw.get(picks[role]).layout())
         overwrite = st.checkbox("Also replace models already set on individual switches", value=False)
         apply = st.form_submit_button("Apply to switches", type="primary")
@@ -89,6 +97,7 @@ with st.expander("Hardware: Nexus 9300 models", expanded=not p.role_models, icon
             new_sw.append(sw)
         save(f"Hardware saved; {changed} switch(es) updated", switches=new_sw, role_models={**p.role_models, **picks})
 
+locked_models = dict(S.defaults.role_models) if S.is_locked("role_models") else {}
 with st.expander("Quick generate", expanded=not p.switches, icon=":material/bolt:"):
     if S.vxlan:
         layer = (f"{p.super_spines} super spines (route reflectors), {S.spine_count} spines"
@@ -123,11 +132,11 @@ with st.expander("Quick generate", expanded=not p.switches, icon=":material/bolt
             if S.vxlan:
                 sw = generate_switches(prefix, leafs, first_ip or None, gw or None, mask, standard=p.standard,
                                        super_spines=p.super_spines if p.has_super_spines else 0,
-                                       role_models={**hw.suggested(), **p.role_models})
+                                       role_models={**hw.suggested(), **p.role_models, **locked_models})
             else:
                 sw = generate_external_switches(prefix, core, edge, first_ip or None, gw or None, mask,
-                                                role_models={**hw.suggested(), **p.role_models})
-            save(f"Generated {len(sw)} switches", switches=sw)
+                                                role_models={**hw.suggested(), **p.role_models, **locked_models})
+            set_project(std.apply_locks(p.model_copy(update={"switches": sw}), only={"role_models"}), f"Generated {len(sw)} switches")
         except (ValidationError, ValueError) as e:
             show_errors(fmt_errors(e) if isinstance(e, ValidationError) else [str(e)])
 
@@ -142,7 +151,9 @@ with st.form("switches"):
         key=key("switches"),
         column_config={
             "name": st.column_config.TextColumn("Name", required=True),
-            "role": st.column_config.SelectboxColumn("Role", options=list(ROLES), default="leaf", required=True),
+            "role": st.column_config.SelectboxColumn(
+                "Role", options=list(S.roles or ROLES), default=(S.roles or ("leaf",))[0], required=True,
+                help=f"Limited by the design standard to {', '.join(S.roles)}" if S.roles else None),
             "border_set": st.column_config.SelectboxColumn(
                 "Border set", options=list(S.border_sets), help=f"Borders only: {', '.join(S.border_sets) or 'none in this standard'}"
             ),
@@ -152,7 +163,8 @@ with st.form("switches"):
             ),
             "model": st.column_config.SelectboxColumn(
                 "Model", options=sorted(set(hw.catalog()) | {x.model for x in p.switches if x.model}),
-                help="Nexus 9300 model; port numbering and checks follow it"
+                help=LOCKED if locked_models else "Nexus 9300 model; port numbering and checks follow it",
+                disabled=bool(locked_models),
             ),
             "serial_number": st.column_config.TextColumn("Serial number", help="Required by ND to add the switch"),
             "management_ipv4_address": st.column_config.TextColumn("Mgmt IPv4"),
@@ -167,6 +179,6 @@ if submitted:
     if errors:
         show_errors(errors)
     else:
-        save(f"Saved {len(sw)} switches", switches=sw)
+        set_project(std.apply_locks(p.model_copy(update={"switches": sw}), only={"role_models"}), f"Saved {len(sw)} switches")
 
 section_issues("Switches")

@@ -3,7 +3,7 @@ from pydantic import ValidationError
 
 from nacbuilder import standards as std
 from nacbuilder.models import Underlay, UnderlayGeneral, UnderlayIpv4, UnderlayMulticast, UnderlayOspf
-from nacbuilder.ui import fmt_errors, project, save, section_issues, show_errors
+from nacbuilder.ui import LOCKED, fmt_errors, project, save, section_issues, show_errors
 
 u = project().underlay
 g, v4, ospf, mc = u.general, u.ipv4, u.ospf, u.multicast
@@ -20,14 +20,18 @@ with st.form("underlay"):
     st.subheader("General", divider="gray")
     c1, c2, c3 = st.columns(3)
     S = std.get(project().standard)
+    D = S.defaults
     if S.underlay_protocol:
-        c1.text_input("Routing protocol", S.underlay_protocol.upper(), disabled=True, help="Fixed by the design standard.")
+        c1.text_input("Routing protocol", S.underlay_protocol.upper(), disabled=True, help=LOCKED)
         proto = S.underlay_protocol
     else:
         protos = ["ospf", "is-is"]
         proto = c1.selectbox("Routing protocol", protos, index=protos.index(g.routing_protocol))
     reps = ["multicast", "ingress"]
-    rep = c2.selectbox("BUM replication", reps, index=idx(reps, g.replication_mode), help="Multicast needs RPs on the spines; ingress uses head-end replication.")
+    if S.is_locked("replication_mode"):
+        rep = c2.selectbox("BUM replication", [D.replication_mode], disabled=True, help=LOCKED)
+    else:
+        rep = c2.selectbox("BUM replication", reps, index=idx(reps, g.replication_mode), help="Multicast needs RPs on the spines; ingress uses head-end replication.")
     tag = c3.text_input("Routing protocol tag", g.underlay_routing_protocol_tag)
     c1, c2, c3, c4 = st.columns(4)
     lo_rt = c1.number_input("Routing loopback ID", 0, 1023, g.underlay_routing_loopback_id)
@@ -40,12 +44,21 @@ with st.form("underlay"):
     c1, c2 = st.columns(2)
     nums = ["p2p", "unnumbered"]
     numbering = c1.selectbox("Fabric link numbering", nums, index=idx(nums, v4.fabric_interface_numbering))
-    mask = c2.selectbox("Fabric link mask", [30, 31], index=idx([30, 31], v4.subnet_mask))
+    if S.is_locked("subnet_mask"):
+        mask = c2.selectbox("Fabric link mask", [D.subnet_mask], disabled=True, help=LOCKED)
+    else:
+        mask = c2.selectbox("Fabric link mask", [30, 31], index=idx([30, 31], v4.subnet_mask))
     c1, c2 = st.columns(2)
-    rt_range = c1.text_input("Routing loopback range", str(v4.underlay_routing_loopback_ip_range))
-    vtep_range = c2.text_input("VTEP loopback range", str(v4.underlay_vtep_loopback_ip_range))
-    link_range = c1.text_input("Fabric link subnet range", str(v4.underlay_subnet_ip_range))
-    rp_range = c2.text_input("RP loopback range (multicast only)", str(v4.underlay_rp_loopback_ip_range))
+
+    def ip_range(col, label, field, current):
+        if S.is_locked(field):
+            return col.text_input(label, getattr(D, field), disabled=True, help=LOCKED)
+        return col.text_input(label, str(current))
+
+    rt_range = ip_range(c1, "Routing loopback range", "routing_loopback_range", v4.underlay_routing_loopback_ip_range)
+    vtep_range = ip_range(c2, "VTEP loopback range", "vtep_loopback_range", v4.underlay_vtep_loopback_ip_range)
+    link_range = ip_range(c1, "Fabric link subnet range", "fabric_link_range", v4.underlay_subnet_ip_range)
+    rp_range = ip_range(c2, "RP loopback range (multicast only)", "rp_loopback_range", v4.underlay_rp_loopback_ip_range)
 
     st.subheader("OSPF", divider="gray")
     c1, c2, c3, c4 = st.columns(4)
