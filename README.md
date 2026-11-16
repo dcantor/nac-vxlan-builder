@@ -20,6 +20,14 @@ host_vars/<fabric>/
 
 `topology_switches.nac.yaml` also carries `vpc_peers` and each switch's `interfaces`.
 
+[![Watch the walkthrough](docs/walkthrough-poster.jpg)](https://github.com/dcantor/nac-vxlan-builder/raw/main/docs/nac-vxlan-builder-walkthrough.mp4)
+
+A 2.5-minute captioned walkthrough video,
+[`docs/nac-vxlan-builder-walkthrough.mp4`](docs/nac-vxlan-builder-walkthrough.mp4), shows the
+demo fabric, the port map and a Day-2 change with its preview, clone, fabric switching and dark
+mode. Rebuild it with `python docs/tour/record_video.py` (needs Playwright with Chrome and its
+ffmpeg, and `imageio-ffmpeg`).
+
 A 15-page guided tour with screenshots of the demo fabric is in
 [`docs/nac-vxlan-builder-tour.pdf`](docs/nac-vxlan-builder-tour.pdf). To rebuild it after UI
 changes, run `python docs/tour/capture.py` then `python docs/tour/build_pdf.py` (needs Playwright
