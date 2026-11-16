@@ -20,7 +20,7 @@ host_vars/<fabric>/
 
 `topology_switches.nac.yaml` also carries `vpc_peers` and each switch's `interfaces`.
 
-[![Watch the walkthrough](docs/walkthrough-poster.jpg)](https://github.com/dcantor/nac-vxlan-builder/raw/main/docs/nac-vxlan-builder-walkthrough.mp4)
+[![Watch the walkthrough](docs/walkthrough-poster.jpg)](https://cdn.jsdelivr.net/gh/dcantor/nac-vxlan-builder@main/docs/nac-vxlan-builder-walkthrough.mp4)
 
 A 2.5-minute captioned walkthrough video,
 [`docs/nac-vxlan-builder-walkthrough.mp4`](docs/nac-vxlan-builder-walkthrough.mp4), shows the
