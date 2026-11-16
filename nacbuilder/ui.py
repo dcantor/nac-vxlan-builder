@@ -6,6 +6,7 @@ every data_editor restarts from the saved data (otherwise its pending edits woul
 be re-applied on top of the already-saved rows).
 """
 
+from pathlib import Path
 from typing import Callable
 
 import pandas as pd
@@ -167,7 +168,7 @@ def header(p: Project) -> None:
     }}
     </style>""", unsafe_allow_html=True)
     with st.container(key="nacb_header"):
-        c1, c2 = st.columns([3, 2], vertical_alignment="center")
+        c1, c2, c3 = st.columns([3, 2, 0.32], vertical_alignment="center")
         issues = check_project(p)
         errs = sum(i.level == "error" for i in issues)
         counts = f"{len(p.switches)} switches" + (f" · {len(p.vrfs)} VRFs · {len(p.networks)} networks" if p.is_vxlan else "")
@@ -191,6 +192,8 @@ def header(p: Project) -> None:
                 except (ValueError, OSError) as e:
                     st.session_state.flash = f"Couldn't switch: {e}"
 
+        with c3:
+            theme_toggle(dark, page_paths())
         widget_key = key(f"fabric_switch_{p.fabric.name}")
         c2.selectbox("Switch fabric", names, index=0, format_func=label, key=widget_key, on_change=on_pick,
                      label_visibility="collapsed", disabled=len(names) < 2,
@@ -215,3 +218,55 @@ def nac_version_text() -> str:
     elif installed:
         text += " · installed ✓"
     return text
+
+
+def theme_toggle(dark: bool, paths: list[str]) -> None:
+    """Sun/moon button that flips Streamlit's light/dark theme for this browser.
+
+    Streamlit keeps the viewer's choice in localStorage under `stActiveTheme-<page path>-v2` (as
+    "Light"/"Dark"); the button writes it for every page path and reloads, the same as picking the
+    theme in Streamlit's own Settings menu.
+    """
+    import json
+
+    import streamlit.components.v1 as components
+
+    target = "Light" if dark else "Dark"
+    icon = "☀️" if dark else "🌙"
+    fg, bg, border = ("#fafafa", "#262730", "#4b4d57") if dark else ("#31333f", "#ffffff", "#d5d8de")
+    components.html(f"""
+<style>
+  html, body {{ margin: 0; background: transparent; }}
+  button {{ width: 38px; height: 38px; border-radius: 8px; border: 1px solid {border}; background: {bg};
+           color: {fg}; font-size: 18px; cursor: pointer; line-height: 1; }}
+  button:hover {{ border-color: #ff4b4b; }}
+</style>
+<button id="t" title="Switch to {target.lower()} mode" aria-label="Switch to {target.lower()} mode">{icon}</button>
+<script>
+  document.getElementById("t").addEventListener("click", () => {{
+    try {{
+      const store = window.parent.localStorage;
+      const paths = new Set({json.dumps(paths)});
+      paths.add(window.parent.location.pathname);
+      for (let i = 0; i < store.length; i++) {{  // any page Streamlit already remembered
+        const k = store.key(i);
+        const m = k && k.match(/^stActiveTheme-(.*)-v2$/);
+        if (m) paths.add(m[1]);
+      }}
+      paths.forEach((p) => store.setItem("stActiveTheme-" + p + "-v2", JSON.stringify("{target}")));
+      window.parent.location.reload();
+    }} catch (e) {{
+      alert("Couldn't switch the theme here: use Settings in Streamlit's ⋮ menu instead.");
+    }}
+  }});
+</script>
+""", height=40)
+
+
+def page_paths() -> list[str]:
+    """URL paths of the app's pages ("/", "/switches", ...), so a theme choice covers all of them."""
+    import glob
+    import os
+
+    names = [os.path.splitext(os.path.basename(x))[0] for x in glob.glob(str(Path(__file__).parent.parent / "views" / "*.py"))]
+    return ["/", *sorted(f"/{n}" for n in names)]

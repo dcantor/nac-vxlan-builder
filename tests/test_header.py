@@ -73,3 +73,15 @@ def test_header_shows_nac_version(monkeypatch):
     assert ui.nac_version_text().endswith(":orange[installed collection is 0.10.0]")
     at = run_app(full_fabric())
     assert any("NaC `cisco.nac_dc_vxlan` 0.9.1" in m.value for m in at.markdown)
+
+
+def test_theme_toggle_in_header():
+    from nacbuilder.ui import page_paths
+
+    paths = page_paths()
+    assert paths[0] == "/" and "/switches" in paths and "/tasks" in paths
+    at = run_app(full_fabric())
+    frames = [e for e in at.get("iframe")]
+    html = next(f.proto.srcdoc for f in frames if "stActiveTheme-" in f.proto.srcdoc)
+    assert '"/switches"' in html and "window.parent.location.reload()" in html
+    assert "Switch to dark mode" in html or "Switch to light mode" in html

@@ -82,6 +82,9 @@ A bar at the top of every page stays put when you scroll. It shows:
 - the NaC version the app writes for (`cisco.nac_dc_vxlan` 0.9.1, ND 4.2) and the builder
   version, plus whether the installed collection matches
 
+The sun/moon button at the top right switches between light and dark mode. It saves the choice
+in this browser for every page, the same as Streamlit's Settings menu, and reloads the page.
+
 Its dropdown lists the other fabrics you've worked on (every fabric with saved History), newest
 change first. Picking one saves the open fabric if it changed, then opens the other fabric's
 latest state. Undo/redo starts fresh for each fabric.
