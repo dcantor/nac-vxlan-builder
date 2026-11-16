@@ -7,6 +7,8 @@ name = "nac-vxlan-builder"
 version = "0.1.0"
 description = "Streamlit wizard that builds Cisco Network as Code VXLAN EVPN (Nexus Dashboard) YAML files"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "streamlit>=1.67,<1.68",  # tested series; st.iframe and width= need 1.67
     "pydantic>=2.7",

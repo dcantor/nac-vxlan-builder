@@ -7,3 +7,4 @@ export/*
 !export/.gitkeep
 docs/tour/shots/
 docs/tour/trimmed/
+.DS_Store

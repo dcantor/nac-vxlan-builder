@@ -481,3 +481,9 @@ tests/golden/       Cisco's example files, used as expected output
 ```bash
 pytest
 ```
+
+## License
+
+MIT; see [LICENSE](LICENSE). The files in `tests/golden/` are copies of Cisco's
+`ansible-dc-vxlan-example` fabric, used as expected output in the tests, and stay under that
+project's license.
