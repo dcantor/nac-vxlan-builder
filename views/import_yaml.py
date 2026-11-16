@@ -77,5 +77,5 @@ if res:
         label = "Load into the app (replaces the current project)" if replacing else "Load into the app"
         if st.button(label, type="primary", icon=":material/check:"):
             del st.session_state["import_result"]
-            set_project(p, f"Imported {p.fabric.name}")
+            set_project(p, f"Imported {p.fabric.name}", new_fabric=True)
             st.switch_page("views/switches.py")

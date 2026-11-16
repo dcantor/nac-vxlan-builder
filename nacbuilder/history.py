@@ -1,7 +1,8 @@
 """Project history: a JSON snapshot each time the project changes, plus a session undo/redo stack.
 
-Snapshots live in ~/.nac-vxlan-builder/history/<fabric>/ (override with NACB_HISTORY_DIR), so you
-can step back after a bad bulk edit even after restarting the app.
+Snapshots live in ~/.nac-vxlan-builder/history/<fabric id>/ (override with NACB_HISTORY_DIR), so you
+can step back after a bad bulk edit even after restarting the app. The ID comes from the fabric
+store (store.py); folders named after a fabric are from older versions.
 """
 
 import json
@@ -51,8 +52,9 @@ class History:
         self.root = Path(root) if root else history_root()
         self.keep = keep
 
-    def record(self, p: Project, label: str) -> Snapshot:
-        folder = self.root / _safe(p.fabric.name)
+    def record(self, p: Project, label: str, fabric_id: str | None = None) -> Snapshot:
+        """Snapshot `p` in the folder for `fabric_id` (from the fabric store), else for its name."""
+        folder = self.root / _safe(fabric_id or p.fabric.name)
         folder.mkdir(parents=True, exist_ok=True)
         now = datetime.now()
         path = folder / f"{now:%Y%m%d-%H%M%S-%f}.json"

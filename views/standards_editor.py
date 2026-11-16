@@ -8,12 +8,13 @@ from nacbuilder import hardware as hw
 from nacbuilder import standards as std
 from nacbuilder.checks import check_project
 from nacbuilder.models import LEAF_ROLE_RE, ROLES, Project
-from nacbuilder.models.fabric import validate_asn, validate_mac
 from nacbuilder.demo import DEMO_NAME, build_demo, delete_demo, is_demo
 from nacbuilder.generate import apply_write, zip_bytes
+from nacbuilder.models.fabric import validate_asn, validate_mac
 from nacbuilder.paths import fabric_export_dir
+from nacbuilder.store import Store
 from nacbuilder.tabular import records
-from nacbuilder.ui import project, set_project
+from nacbuilder.ui import current_id, project, set_project, switch_fabric
 
 st.title("Design standards")
 t_edit, t_demo = st.tabs(["Edit standards", "Demo mode"])
@@ -62,8 +63,8 @@ with t_demo:
         st.markdown("**Export**")
         c1, c2 = st.columns(2)
         c1.download_button("Download demo YAML (zip)", zip_bytes(cur), file_name=f"{DEMO_NAME}-host_vars.zip",
-                           mime="application/zip", icon=":material/download:", use_container_width=True)
-        if c2.button(f"Write to export/{DEMO_NAME}/", icon=":material/save:", use_container_width=True):
+                           mime="application/zip", icon=":material/download:", width="stretch")
+        if c2.button(f"Write to export/{DEMO_NAME}/", icon=":material/save:", width="stretch"):
             written, _ = apply_write(cur, fabric_export_dir(DEMO_NAME), remove_stale=True)
             st.session_state.flash = f"Wrote {len(written)} demo file(s) to export/{DEMO_NAME}/"
             st.rerun()
@@ -74,19 +75,21 @@ with t_demo:
             if st.button("Yes, delete the demo", type="primary", key="demo_delete"):
                 removed = delete_demo()
                 before = st.session_state.pop("pre_demo", None)
-                st.session_state.pop("undo", None)  # its entries point at deleted demo snapshots
-                set_project(before or std.new_project(), record=False)
+                if before and Store().exists(before):
+                    switch_fabric(before)
+                else:
+                    set_project(std.new_project(), record=False, new_fabric=True, persist=False)
                 st.session_state.flash = "Deleted the demo" + (f" ({', '.join(removed)})" if removed else "")
                 st.rerun()
     else:
         blank = cur in (Project(), std.new_project(cur.standard))
         if not blank:
-            st.info(f"Loading the demo replaces the open fabric `{cur.fabric.name}` for now. It comes back when "
-                    "you delete the demo (save it first if you want a file).", icon=":material/info:")
+            st.info(f"The demo opens as its own fabric. `{cur.fabric.name}` stays in your fabric list and "
+                    "opens again when you delete the demo.", icon=":material/info:")
         if st.button("Load demo fabric", type="primary", icon=":material/slideshow:", key="demo_load"):
             if not blank:
-                st.session_state.pre_demo = cur
-            set_project(build_demo(), f"Loaded the demo fabric {DEMO_NAME}")
+                st.session_state.pre_demo = current_id()
+            set_project(build_demo(), f"Loaded the demo fabric {DEMO_NAME}", new_fabric=True)
             st.rerun()
 
 with t_edit:
@@ -133,7 +136,7 @@ with t_edit:
             c1, c2 = st.columns([3, 1])
             bdf = c1.data_editor(
                 pd.DataFrame({"key": list(S.border_sets), "label": list(S.border_sets.values())}, dtype="string"),
-                num_rows="dynamic", use_container_width=True, key=f"bsets_{key}", disabled=not unlocked,
+                num_rows="dynamic", width="stretch", key=f"bsets_{key}", disabled=not unlocked,
                 column_config={"key": st.column_config.TextColumn("Border set key", required=True),
                                "label": st.column_config.TextColumn("Label", required=True)},
             )

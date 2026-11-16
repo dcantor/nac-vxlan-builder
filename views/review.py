@@ -213,8 +213,8 @@ st.markdown("**Clone fabric**")
 with st.expander("Make a copy of this fabric under a new name", icon=":material/content_copy:"):
     st.caption(
         "Builds a new fabric from this one (for example `dc1` → `dc2`), renaming every switch everywhere it's "
-        "used: vPC pairs, interfaces, attach groups, VRF-lite and kept settings. The clone opens in place of "
-        "this fabric; Undo or History brings the original back."
+        "used: vPC pairs, interfaces, attach groups, VRF-lite and kept settings. The clone is saved as a new "
+        "fabric and opens; this one stays in your fabric list (switch back from the header)."
     )
     sug = suggest(p)
     with st.form(f"clone_{p.fabric.name}"):
@@ -251,5 +251,5 @@ with st.expander("Make a copy of this fabric under a new name", icon=":material/
                 else:
                     written, _ = apply_write(clone, out, remove_stale=False)
                     msg += f" and wrote {len(written)} file(s) to export/{clone.fabric.name}/"
-            set_project(clone, msg)
+            set_project(clone, msg, new_fabric=True)
             st.rerun()

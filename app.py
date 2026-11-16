@@ -60,14 +60,14 @@ with st.sidebar:
 
     stack = undo_stack()
     c1, c2 = st.columns(2)
-    if c1.button("Undo", icon=":material/undo:", disabled=not stack.can_undo, use_container_width=True,
+    if c1.button("Undo", icon=":material/undo:", disabled=not stack.can_undo, width="stretch",
                  help=f"Undo: {stack.labels[stack.pos]}" if stack.can_undo else "Nothing to undo"):
         try:
             undo()
         except (ValueError, OSError) as e:
             st.error(f"Couldn't undo: {e}")
         st.rerun()
-    if c2.button("Redo", icon=":material/redo:", disabled=not stack.can_redo, use_container_width=True,
+    if c2.button("Redo", icon=":material/redo:", disabled=not stack.can_redo, width="stretch",
                  help=f"Redo: {stack.labels[stack.pos + 1]}" if stack.can_redo else "Nothing to redo"):
         try:
             redo()
@@ -83,24 +83,24 @@ with st.sidebar:
         p.model_dump_json(indent=2),
         file_name=f"{p.fabric.name}.nacproj.json",
         mime="application/json",
-        use_container_width=True,
+        width="stretch",
     )
     up = st.file_uploader("Load project", type=["json"], key=key("project_upload"))
     if up is not None:
         try:
-            set_project(Project.model_validate_json(up.getvalue()), f"Loaded {up.name}")
+            set_project(Project.model_validate_json(up.getvalue()), f"Loaded {up.name}", new_fabric=True)
             st.rerun()
         except ValidationError as e:
             st.error(f"Not a valid project file: {e.error_count()} problem(s)")
     c1, c2 = st.columns(2)
-    if c1.button("Load example", help="A small fabric that follows the design standard", use_container_width=True):
-        set_project(standard_example(), "Loaded the example fabric")
+    if c1.button("Load example", help="A small fabric that follows the design standard", width="stretch"):
+        set_project(standard_example(), "Loaded the example fabric", new_fabric=True)
         st.rerun()
-    with c2.popover("New", use_container_width=True):
-        st.write("Discard the current project and start a new one from a standard's defaults?")
+    with c2.popover("New", width="stretch"):
+        st.write("Start a new fabric from a standard's defaults? The open one stays in your fabric list.")
         new_std = st.selectbox("Design standard", list(std.KEYS), format_func=lambda k: std.get(k).label, key="new_std")
-        if st.button("Yes, start over", type="primary"):
-            set_project(std.new_project(new_std), f"Started a new {std.get(new_std).label} project")
+        if st.button("Start new fabric", type="primary"):
+            set_project(std.new_project(new_std), f"Started a new {std.get(new_std).label} fabric", new_fabric=True)
             st.rerun()
 
 show_flash()

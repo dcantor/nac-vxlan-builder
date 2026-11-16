@@ -59,24 +59,24 @@ if plan.conflicts:
 c1, c2, _ = st.columns([1, 1, 2])
 c1.download_button("Download Excel", to_xlsx(plan, p.fabric.name), file_name=f"{p.fabric.name}-cabling.xlsx",
                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", icon=":material/table:",
-                   type="primary", use_container_width=True)
+                   type="primary", width="stretch")
 c2.download_button("Download CSV (zip)", to_csv_zip(plan, p.fabric.name), file_name=f"{p.fabric.name}-cabling-csv.zip",
-                   mime="application/zip", icon=":material/download:", use_container_width=True)
+                   mime="application/zip", icon=":material/download:", width="stretch")
 
 tab_links, tab_ports, tab_vpc, tab_lite = st.tabs(["Cabling", "Ports by switch", "vPC pairs", "VRF-lite"])
 with tab_links:
     kinds = sorted({r["type"] for r in plan.links})
     show = st.multiselect("Show", kinds, default=kinds, key="cable_kinds")
     st.dataframe(pd.DataFrame([r for r in plan.links if r["type"] in show], columns=LINK_COLUMNS),
-                 use_container_width=True, hide_index=True)
+                 width="stretch", hide_index=True)
 with tab_ports:
     sw = st.selectbox("Switch", ["All switches", *sorted({r["switch"] for r in plan.ports})], key="cable_switch")
     rows = plan.ports if sw == "All switches" else [r for r in plan.ports if r["switch"] == sw]
-    st.dataframe(pd.DataFrame(rows, columns=PORT_COLUMNS), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows, columns=PORT_COLUMNS), width="stretch", hide_index=True)
 with tab_vpc:
-    st.dataframe(pd.DataFrame(plan.vpc), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(plan.vpc), width="stretch", hide_index=True)
 with tab_lite:
     if plan.vrf_lite:
-        st.dataframe(pd.DataFrame(plan.vrf_lite), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(plan.vrf_lite), width="stretch", hide_index=True)
     else:
         st.caption("No VRF-lite handoffs.")

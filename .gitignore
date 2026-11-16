@@ -5,3 +5,5 @@ __pycache__/
 *.nacproj.json
 export/*
 !export/.gitkeep
+docs/tour/shots/
+docs/tour/trimmed/

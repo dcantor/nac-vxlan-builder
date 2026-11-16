@@ -1,5 +1,4 @@
 from nacbuilder.checks import check_project
-from nacbuilder.models import Project
 from nacbuilder.sample import standard_example
 from nacbuilder.tabular import (
     NETWORK_COLS,

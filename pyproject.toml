@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Streamlit wizard that builds Cisco Network as Code VXLAN EVPN (Nexus Dashboard) YAML files"
 requires-python = ">=3.11"
 dependencies = [
-    "streamlit>=1.40",
+    "streamlit>=1.67,<1.68",  # tested series; st.iframe and width= need 1.67
     "pydantic>=2.7",
     "ruamel.yaml>=0.18",
     "pyyaml>=6.0",
@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "pyflakes>=3"]
 # Cisco's semantic rules (macOS): the app can also install these from Review & export
 rules = ["ansible-core>=2.14,<2.19"]
 

@@ -121,7 +121,7 @@ with st.form("interfaces"):
     df = st.data_editor(
         frame([interface_to_row(i) for i in shown], INTERFACE_COLS),
         num_rows="dynamic",
-        use_container_width=True,
+        width="stretch",
         key=key(f"interfaces_{view}"),
         column_config={
             "switch": st.column_config.SelectboxColumn("Switch", options=sorted(set(names) | {i.switch for i in p.interfaces}),

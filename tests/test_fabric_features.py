@@ -5,7 +5,7 @@ import yaml
 from pydantic import ValidationError
 
 from nacbuilder.checks import check_project
-from nacbuilder.defaults import apply_vrf_lite_plan, build_vrf_lite, expand_ports, pair_vpc, vpc_port_channel
+from nacbuilder.defaults import apply_vrf_lite_plan, build_vrf_lite, expand_ports, vpc_port_channel
 from nacbuilder.diagram import render_svg
 from nacbuilder.generate import build_documents, render_all
 from nacbuilder.importer import import_texts

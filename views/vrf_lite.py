@@ -75,11 +75,11 @@ for lite in p.vrf_lites:
                 })
             for peer in peers[len(s.interfaces):]:
                 rows.append({"switch": s.name, "interface": "", "neighbor": str(peer.address), "neighbor ASN": peer.remote_as})
-        st.dataframe(rows, use_container_width=True, hide_index=True)
+        st.dataframe(rows, width="stretch", hide_index=True)
         st.caption("Edit addresses and tags on the Interfaces page. To change the profile, delete it and add it again.")
         c1, c2 = st.columns([2, 1], vertical_alignment="center")
         drop_ifs = c1.checkbox("Also delete its sub-interfaces", value=True, key=f"drop_ifs_{lite.name}")
-        if c2.button("Delete", key=f"del_{lite.name}", icon=":material/delete:", use_container_width=True):
+        if c2.button("Delete", key=f"del_{lite.name}", icon=":material/delete:", width="stretch"):
             q = remove_vrf_lite(p, lite.name, drop_interfaces=drop_ifs)
             save(f"Deleted {lite.name}", vrf_lites=q.vrf_lites, interfaces=q.interfaces)
 

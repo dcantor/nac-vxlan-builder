@@ -2,7 +2,8 @@ import streamlit as st
 
 from nacbuilder.diffing import compare_projects
 from nacbuilder.history import History
-from nacbuilder.ui import project, set_project
+from nacbuilder.store import Store
+from nacbuilder.ui import current_id, project, set_project
 
 p = project()
 hist = History()
@@ -19,8 +20,12 @@ fabrics = hist.fabrics()
 if not fabrics:
     st.info("No snapshots yet. They appear as soon as you save a change.", icon=":material/info:")
     st.stop()
-default = fabrics.index(p.fabric.name) if p.fabric.name in fabrics else 0
-fabric = st.selectbox("Fabric", fabrics, index=default)
+# History folders are named after the fabric's ID (older versions used its name)
+names = {r.id: r.name for r in Store().list()}
+cur = current_id()
+default = fabrics.index(cur) if cur in fabrics else (fabrics.index(p.fabric.name) if p.fabric.name in fabrics else 0)
+fabric = st.selectbox("Fabric", fabrics, index=default,
+                      format_func=lambda f: names.get(f, f"{f} (older history)") + (" (open)" if f == cur else ""))
 snaps = hist.list(fabric)
 st.caption(f"{len(snaps)} snapshot(s), newest first (the last {hist.keep} are kept).")
 
@@ -33,7 +38,7 @@ rows = [{
     "VRFs": s.counts.get("vrfs"),
     "networks": s.counts.get("networks"),
 } for s in snaps]
-event = st.dataframe(rows, use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row",
+event = st.dataframe(rows, width="stretch", hide_index=True, on_select="rerun", selection_mode="single-row",
                      key=f"hist_{fabric}")
 picked = event.selection.rows[0] if event and event.selection.rows else None
 
@@ -59,15 +64,15 @@ else:
             if items:
                 col.markdown("\n".join(f"- {i}" for i in items[:40]) + (f"\n- … {len(items) - 40} more" if len(items) > 40 else ""))
     c1, c2, _ = st.columns([1, 1, 2])
-    if c1.button("Restore this snapshot", type="primary", use_container_width=True):
+    if c1.button("Restore this snapshot", type="primary", width="stretch"):
         set_project(old, f"Restored snapshot from {snap.created:%H:%M:%S} ({snap.label})")
         st.rerun()
-    c2.download_button("Download as project", old.model_dump_json(indent=2), file_name=f"{fabric}-{snap.id}.nacproj.json",
-                       mime="application/json", use_container_width=True)
+    c2.download_button("Download as project", old.model_dump_json(indent=2), file_name=f"{names.get(fabric, fabric)}-{snap.id}.nacproj.json",
+                       mime="application/json", width="stretch")
 
 with st.expander("Delete history", icon=":material/delete:"):
-    st.caption(f"Deletes all {len(snaps)} snapshot(s) for `{fabric}` from disk. This can't be undone.")
-    if st.button(f"Delete {len(snaps)} snapshot(s) for {fabric}"):
+    st.caption(f"Deletes all {len(snaps)} snapshot(s) for `{names.get(fabric, fabric)}` from disk. This can't be undone.")
+    if st.button(f"Delete {len(snaps)} snapshot(s) for {names.get(fabric, fabric)}"):
         n = hist.clear(fabric)
         st.toast(f"Deleted {n} snapshot(s)")
         st.rerun()

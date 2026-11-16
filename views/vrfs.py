@@ -21,7 +21,7 @@ with st.form("vrfs"):
     df = st.data_editor(
         frame([v.to_nac() for v in p.vrfs], VRF_COLS),
         num_rows="dynamic",
-        use_container_width=True,
+        width="stretch",
         key=key("vrfs"),
         column_config={
             "name": st.column_config.TextColumn("Name", required=True, max_chars=32),

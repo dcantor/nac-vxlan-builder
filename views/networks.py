@@ -26,7 +26,7 @@ with st.form("networks"):
     df = st.data_editor(
         frame([n.to_nac() for n in p.networks], COLS),
         num_rows="dynamic",
-        use_container_width=True,
+        width="stretch",
         key=key("networks"),
         column_config={
             "name": st.column_config.TextColumn("Name", required=True, max_chars=64),

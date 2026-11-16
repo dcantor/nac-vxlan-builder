@@ -3,9 +3,10 @@ from pydantic import ValidationError
 
 from nacbuilder import standards as std
 from nacbuilder import workspace
-from nacbuilder.models import Fabric, GlobalIbgp, ManagementServer, Project, SyslogServer
+from nacbuilder.models import Fabric, GlobalIbgp, ManagementServer, SyslogServer
 from nacbuilder.tasks import clear_fabric, clear_summary
-from nacbuilder.ui import LOCKED, build_rows, fmt_errors, frame, key, project, records, section_issues, set_project, show_errors
+from nacbuilder.ui import (LOCKED, build_rows, current_id, fmt_errors, frame, key, project, records, section_issues,
+                           set_project, show_errors)
 
 p = project()
 g = p.ibgp
@@ -129,13 +130,13 @@ with st.form("fabric"):
         s1, s2, s3 = st.columns(3)
         with s1:
             st.markdown("**DNS servers**")
-            dns_df = st.data_editor(frame(servers(g.dns_servers), SRV), num_rows="dynamic", column_config=cols, key=key("dns"), use_container_width=True)
+            dns_df = st.data_editor(frame(servers(g.dns_servers), SRV), num_rows="dynamic", column_config=cols, key=key("dns"), width="stretch")
         with s2:
             st.markdown("**NTP servers**")
-            ntp_df = st.data_editor(frame(servers(g.ntp_servers), SRV), num_rows="dynamic", column_config=cols, key=key("ntp"), use_container_width=True)
+            ntp_df = st.data_editor(frame(servers(g.ntp_servers), SRV), num_rows="dynamic", column_config=cols, key=key("ntp"), width="stretch")
         with s3:
             st.markdown("**Syslog servers**")
-            sys_df = st.data_editor(frame(servers(g.syslog_servers), SYS), num_rows="dynamic", column_config=cols, key=key("syslog"), use_container_width=True)
+            sys_df = st.data_editor(frame(servers(g.syslog_servers), SYS), num_rows="dynamic", column_config=cols, key=key("syslog"), width="stretch")
     else:
         c2.caption("An External fabric's global settings are just the BGP ASN; switches, interfaces and vPC pairs "
                    "are set on their own pages.")
@@ -176,6 +177,7 @@ if submitted:
             label += f", with {super_n} super spines"
         q = p.model_copy(update=dict(fabric=fabric, ibgp=ibgp, standard=picked, super_spines=super_n))
         set_project(std.apply_locks(q), label)  # locked standard values always win
+        st.rerun()  # so the header and sidebar show the saved values
 
 section_issues("Fabric")
 
@@ -195,48 +197,47 @@ with st.popover("Clear all settings…", icon=":material/delete_forever:", disab
         st.rerun()
 
 st.subheader("Fabric instances", divider="gray")
-entries = {e.name: e for e in workspace.fabrics()}
-open_blank = p in (Project(), std.new_project(p.standard))
-names = list(entries)
-if p.fabric.name not in entries and not open_blank:
-    names.insert(0, p.fabric.name)  # open fabric with no saved History yet
+records = workspace.fabrics()
+cur_id = current_id()
+rows = list(records)
 with st.container(border=True):
-    if not names:
-        st.caption("No fabrics yet. Every fabric you build or import is listed here once it's saved to History.")
+    if not rows:
+        st.caption("No saved fabrics yet. A fabric is saved here as soon as you make a change.")
     else:
-        st.caption("Every fabric you've worked on (saved in History). Tick the ones to delete: their History "
-                   "snapshots and `export/<fabric>/` folder go. Files written to a NaC repo aren't touched.")
+        st.caption("Every saved fabric. Tick the ones to delete: the fabric, its History snapshots and its "
+                   "`export/<fabric>/` folder go (the folder stays while another fabric has the same name). "
+                   "Files written to a NaC repo aren't touched.")
         picked = []
-        for n in names:
-            label = workspace.describe(entries[n]) if n in entries else f"{n} · not saved yet"
-            if n == p.fabric.name:
-                label += " · **open now**"
-            if st.checkbox(label, key=key(f"fab_del_{n}")):
-                picked.append(n)
+        for r in rows:
+            label = workspace.describe(r, records) + (" · **open now**" if r.id == cur_id else "")
+            if st.checkbox(label, key=key(f"fab_del_{r.id}")):
+                picked.append(r.id)
+        names = {r.id: r.name for r in rows}
         pending = st.session_state.get("fab_delete")
         if st.button("Delete fabric(s)", icon=":material/delete:", disabled=not picked or bool(pending),
                      key="fab_delete_btn"):
             st.session_state.fab_delete = picked
             st.rerun()
         if pending:
-            st.error(f"Delete {len(pending)} fabric(s): {', '.join(f'`{n}`' for n in pending)}? This removes their "
-                     "History snapshots and export folders and can't be undone."
-                     + (" The open fabric is one of them; a new, empty fabric opens instead." if p.fabric.name in pending else ""),
+            st.error(f"Delete {len(pending)} fabric(s): {', '.join(f'`{names.get(i, i)}`' for i in pending)}? This "
+                     "removes them, their History snapshots and export folders, and can't be undone."
+                     + (" The open fabric is one of them; a new, empty fabric opens instead." if cur_id in pending else ""),
                      icon=":material/warning:")
             typed = st.text_input('Type "Yes" to confirm', key="fab_delete_confirm")
             c1, c2, _ = st.columns([1, 1, 3])
             if c1.button("Delete", type="primary", disabled=typed.strip() != "Yes", key="fab_delete_go",
-                         use_container_width=True):
-                gone = {n: workspace.delete_fabric(n) for n in pending}
+                         width="stretch"):
+                for fid in pending:
+                    workspace.delete_fabric(fid)
+                gone = sorted(names.get(i, i) for i in pending)
                 st.session_state.pop("fab_delete", None)
                 st.session_state.pop("fab_delete_confirm", None)
-                if p.fabric.name in pending:
-                    st.session_state.pop("undo", None)
-                    set_project(std.new_project(p.standard), record=False)
-                st.session_state.flash = f"Deleted {len(gone)} fabric(s): {', '.join(sorted(gone))}"
+                if cur_id in pending:
+                    set_project(std.new_project(p.standard), record=False, new_fabric=True, persist=False)
+                st.session_state.flash = f"Deleted {len(gone)} fabric(s): {', '.join(gone)}"
                 st.session_state.editor_ver = st.session_state.get("editor_ver", 0) + 1  # clear the checkboxes
                 st.rerun()
-            if c2.button("Cancel", key="fab_delete_cancel", use_container_width=True):
+            if c2.button("Cancel", key="fab_delete_cancel", width="stretch"):
                 st.session_state.pop("fab_delete", None)
                 st.session_state.pop("fab_delete_confirm", None)
                 st.rerun()

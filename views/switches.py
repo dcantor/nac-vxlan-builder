@@ -137,6 +137,7 @@ with st.expander("Quick generate", expanded=not p.switches, icon=":material/bolt
                 sw = generate_external_switches(prefix, core, edge, first_ip or None, gw or None, mask,
                                                 role_models={**hw.suggested(), **p.role_models, **locked_models})
             set_project(std.apply_locks(p.model_copy(update={"switches": sw}), only={"role_models"}), f"Generated {len(sw)} switches")
+            st.rerun()
         except (ValidationError, ValueError) as e:
             show_errors(fmt_errors(e) if isinstance(e, ValidationError) else [str(e)])
 
@@ -147,7 +148,7 @@ with st.form("switches"):
     df = st.data_editor(
         frame([to_row(s) for s in p.switches], COLS),
         num_rows="dynamic",
-        use_container_width=True,
+        width="stretch",
         key=key("switches"),
         column_config={
             "name": st.column_config.TextColumn("Name", required=True),
@@ -180,5 +181,6 @@ if submitted:
         show_errors(errors)
     else:
         set_project(std.apply_locks(p.model_copy(update={"switches": sw}), only={"role_models"}), f"Saved {len(sw)} switches")
+        st.rerun()
 
 section_issues("Switches")

@@ -20,12 +20,14 @@ host_vars/<fabric>/
 
 `topology_switches.nac.yaml` also carries `vpc_peers` and each switch's `interfaces`.
 
-A 13-page guided tour with screenshots of a working example is in
-[`docs/nac-vxlan-builder-tour.pdf`](docs/nac-vxlan-builder-tour.pdf).
+A 15-page guided tour with screenshots of the demo fabric is in
+[`docs/nac-vxlan-builder-tour.pdf`](docs/nac-vxlan-builder-tour.pdf). To rebuild it after UI
+changes, run `python docs/tour/capture.py` then `python docs/tour/build_pdf.py` (needs Playwright
+with Chrome, Pillow and reportlab; the capture uses its own copy of the app and throwaway data).
 
 ## Setup
 
-Requires Python 3.11+.
+Requires Python 3.11+. Streamlit is pinned to the 1.67 series the app is tested with.
 
 ```bash
 python3.12 -m venv .venv
@@ -70,9 +72,10 @@ At the bottom of the **Fabric** page, a box lists every fabric you've worked on 
 saved History), with a checkbox next to each. Tick the ones to remove and click **Delete
 fabric(s)**. You then have to type `Yes` before **Delete** is enabled; **Cancel** keeps everything.
 
-Deleting a fabric removes its History snapshots and its `export/<fabric>/` folder. Files you
-wrote to a NaC repo aren't touched. This can't be undone. If the open fabric is deleted, a new,
-empty fabric opens in its place.
+Deleting a fabric removes the saved fabric, its History snapshots and its `export/<fabric>/`
+folder (the folder stays while another fabric has the same name). Files you wrote to a NaC repo
+aren't touched. This can't be undone. If the open fabric is deleted, a new, empty fabric opens in
+its place.
 
 ### Header and switching fabrics
 
@@ -85,9 +88,21 @@ A bar at the top of every page stays put when you scroll. It shows:
 The sun/moon button at the top right switches between light and dark mode. It saves the choice
 in this browser for every page, the same as Streamlit's Settings menu, and reloads the page.
 
-Its dropdown lists the other fabrics you've worked on (every fabric with saved History), newest
-change first. Picking one saves the open fabric if it changed, then opens the other fabric's
-latest state. Undo/redo starts fresh for each fabric.
+Its dropdown lists every saved fabric, most recently changed first, and opens the one you pick.
+Undo/redo starts fresh for each fabric.
+
+### Saved fabrics
+
+Every fabric is saved as its own file, `~/.nac-vxlan-builder/fabrics/<id>.json` (set
+`NACB_FABRICS_DIR` to keep them elsewhere), as soon as you change it.
+- **Stable IDs:** renaming a fabric keeps it the same fabric, and two fabrics can share a name;
+  the dropdown and Fabric instances list then add a short ID to tell them apart.
+- **New fabrics:** loading the example, a project file, an import, a clone or the demo each
+  start a new fabric instead of overwriting the open one. Sidebar → **New** does too.
+- **New sessions** (another browser, your phone, after a restart) open the most recently changed
+  fabric.
+- **Upgrading:** fabrics from older versions (kept only in History, by name) are turned into
+  saved fabrics the first time the app starts.
 
 ### Clear fabric
 
@@ -101,7 +116,9 @@ the settings back.
 
 The **Day-2 tasks** page bundles common changes that otherwise span several pages. Each one
 shows a preview first: what will be added, removed or changed, any new check errors, and a
-line-by-line diff of each YAML file that changes.
+line-by-line diff of each YAML file that changes. On macOS the preview also runs nac-validate on
+the result, with the same schema and Cisco rules as Review & export. On Windows (and Linux) that
+step is skipped; validate from Review & export after applying.
 Nothing changes until you click **Apply**.
 
 - **New tenant:** a VRF and its networks, with VLANs and VNIs allocated automatically, plus the
@@ -167,7 +184,7 @@ on the vPC pairs or Interfaces page.
 ### History and undo
 
 - **Snapshots:** every saved change is stored as a JSON snapshot in
-  `~/.nac-vxlan-builder/history/<fabric>/`, keeping the last 200 per fabric. Set
+  `~/.nac-vxlan-builder/history/<fabric id>/`, keeping the last 200 per fabric. Set
   `NACB_HISTORY_DIR` to store them elsewhere.
 - **Undo/Redo:** the **Undo** and **Redo** buttons in the sidebar step through this session's changes.
 - **History page:** lists every snapshot. Selecting one shows what restoring it would add back,
@@ -455,7 +472,8 @@ nacbuilder/paths.py     export/<fabric>/ folders
 nacbuilder/clone.py     clone a fabric under a new name
 nacbuilder/portmap.py   per-switch port states and the front-panel SVG
 nacbuilder/demo.py      demo mode fabric (build, delete)
-nacbuilder/workspace.py fabrics you can switch to (latest History snapshot of each)
+nacbuilder/store.py     saved fabrics, one JSON file per fabric ID
+nacbuilder/workspace.py fabric list, describe and delete on top of the store
 nacbuilder/standards.py design standards: built-ins + data/standards.yaml (Design standards page)
 tests/golden/       Cisco's example files, used as expected output
 ```

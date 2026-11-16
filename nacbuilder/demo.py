@@ -74,13 +74,24 @@ def demo_export_dir() -> Path:
 
 
 def delete_demo(history: History | None = None) -> list[str]:
-    """Delete the demo's export folder and its history snapshots. Returns what was removed."""
-    removed = []
+    """Delete every demo fabric: its store entry, History and export/demo-dc1/. Returns what was removed."""
+    from .store import Store
+    from .workspace import delete_fabric
+
+    h = history or History()
+    removed, snaps = [], 0
+    for r in Store().list():
+        if r.name == DEMO_NAME:
+            for what in delete_fabric(r.id, history=h):
+                if what.endswith("history snapshot(s)"):
+                    snaps += int(what.split()[0])
+                elif what.startswith("export/"):
+                    removed.append(what)
+    snaps += h.clear(DEMO_NAME)  # History from older versions, kept by name
     d = demo_export_dir()
     if d.is_dir() and d.resolve().parent == export_root().resolve():  # only ever export/demo-dc1
         shutil.rmtree(d)
         removed.append(f"export/{DEMO_NAME}/")
-    n = (history or History()).clear(DEMO_NAME)
-    if n:
-        removed.append(f"{n} history snapshot(s)")
+    if snaps:
+        removed.append(f"{snaps} history snapshot(s)")
     return removed

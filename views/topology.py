@@ -1,7 +1,6 @@
 import re
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from nacbuilder.diagram import render_svg
 from nacbuilder.ui import project
@@ -20,7 +19,7 @@ else:
     # Scale to the page width; the iframe keeps the SVG intact (st.html strips SVG) and the hover tooltips.
     fitted = svg.replace(f'width="{width}" height="{height}"', 'width="100%"', 1)
     view_w = 1000  # typical content width; the frame is sized for it so wide diagrams aren't clipped
-    components.html(f'<body style="margin:0">{fitted}</body>', height=int(height * min(1, view_w / width)) + 16)
+    st.iframe(f'<body style="margin:0">{fitted}</body>', height=int(height * min(1, view_w / width)) + 16)
     c1, c2 = st.columns([1, 3])
     c1.download_button("Download SVG", svg, file_name=f"{p.fabric.name}-topology.svg", mime="image/svg+xml",
                        icon=":material/download:")

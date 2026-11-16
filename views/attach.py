@@ -21,13 +21,13 @@ if not p.switches:
 with st.form("quick_groups"):
     ports_txt = st.text_input("Access ports for quick groups (optional)", placeholder="Ethernet1/13, Ethernet1/14")
     c1, c2, c3, c4 = st.columns(4)
-    add_all = c1.form_submit_button("+ 'all' group", use_container_width=True, help="One group named 'all' with every leaf (no borders)")
-    add_each = c2.form_submit_button("+ group per leaf", use_container_width=True, help="One group per leaf, named after the switch")
+    add_all = c1.form_submit_button("+ 'all' group", width="stretch", help="One group named 'all' with every leaf (no borders)")
+    add_each = c2.form_submit_button("+ group per leaf", width="stretch", help="One group per leaf, named after the switch")
     add_border = c3.form_submit_button(
-        "+ border groups", use_container_width=True, help="border-client, border-internal and border-external, one per border pair"
+        "+ border groups", width="stretch", help="border-client, border-internal and border-external, one per border pair"
     )
     add_lr = c4.form_submit_button(
-        "+ group per leaf role", use_container_width=True, disabled=not p.leaf_roles,
+        "+ group per leaf role", width="stretch", disabled=not p.leaf_roles,
         help="leaf-compute, leaf-storage, ...: one group per leaf role (define leaf roles on the Switches page)"
     )
 if add_all or add_each or add_border or add_lr:
@@ -51,7 +51,7 @@ if orphans:
     hosts = sorted({a.hostname for a in orphans})
     c1, c2 = st.columns([3, 1], vertical_alignment="center")
     c1.warning(f"{len(orphans)} row(s) point at switches that no longer exist: {', '.join(hosts)}.", icon="⚠️")
-    if c2.button("Remove those rows", use_container_width=True):
+    if c2.button("Remove those rows", width="stretch"):
         save(f"Removed {len(orphans)} row(s)", attachments=[a for a in p.attachments if a.hostname in names])
 
 COLS = {"group": "string", "hostname": "string", "used_for": "string", "ports": "string"}
@@ -62,7 +62,7 @@ with st.form("attach"):
     df = st.data_editor(
         frame(rows, COLS),
         num_rows="dynamic",
-        use_container_width=True,
+        width="stretch",
         key=key("attach"),
         column_config={
             "group": st.column_config.TextColumn("Group", required=True),
@@ -95,7 +95,7 @@ if groups:
             }
             for g, r in groups.items()
         ],
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 

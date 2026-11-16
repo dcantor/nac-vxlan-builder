@@ -45,7 +45,7 @@ with st.form("vpc"):
     df = st.data_editor(
         frame([vpc_to_row(v) for v in p.vpc_peers], VPC_COLS),
         num_rows="dynamic",
-        use_container_width=True,
+        width="stretch",
         key=key("vpc"),
         column_config={
             "peer1": st.column_config.SelectboxColumn("Peer 1", options=names, required=True),

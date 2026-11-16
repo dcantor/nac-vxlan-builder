@@ -1,8 +1,8 @@
 import hashlib
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 from pydantic import ValidationError
 
 from nacbuilder import hardware as hw
@@ -13,6 +13,7 @@ from nacbuilder.diffing import compare_projects, project_diffs
 from nacbuilder.models import ATTACHABLE_ROLES, Project
 from nacbuilder.models.interfaces import SPEEDS
 from nacbuilder.portmap import port_picker, render_svg, switch_ports
+from nacbuilder.settings import is_macos, is_windows, load_settings, resolve_rules
 from nacbuilder.tasks import (
     HostPorts,
     PortSpec,
@@ -37,6 +38,7 @@ from nacbuilder.tasks import (
     settings_of,
 )
 from nacbuilder.ui import LOCKED, fmt_errors, key, project, records, set_project, show_errors
+from nacbuilder.validate import nac_validate
 
 BORDER_ROLES = ("border", "border_spine", "border_gateway", "border_gateway_spine")
 
@@ -65,11 +67,22 @@ def show_port_map(proj, switches, highlight=frozenset()):
     if not switches:
         return
     svg, height = render_svg(proj, switches, highlight)
-    components.html(
+    st.iframe(
         '<body style="margin:0;background:#f6f7f9;color:#31333f;border-radius:8px;overflow-x:auto">'
-        f'{svg}</body>', height=height + 8, scrolling=False)
+        f'{svg}</body>', height=height + 8)
     st.caption(":green[■] enabled in the YAML · :red[■] disabled (`enabled: false`) · :gray[■] not in the YAML"
                + (" · blue outline = added or changed by this preview" if highlight else "") + ". Hover a port for details.")
+
+
+def preview_validation(proj):
+    """nac-validate with the same schema and rules as Review & export (None if it can't run)."""
+    cfg = load_settings()
+    schema = Path(cfg.schema_path).expanduser() if cfg.schema_path else None
+    rules = resolve_rules(cfg, fabric_type=std.get(proj.standard).fabric_type)
+    try:
+        return nac_validate(proj, schema=schema, rules=rules)
+    except (OSError, ValueError):
+        return None
 
 
 KIND_TEXT = {
@@ -237,7 +250,7 @@ if p.is_vxlan:
                 vlan_df = st.data_editor(
                     pd.DataFrame({"name": pd.Series(dtype="string"), "gw_ip_address": pd.Series(dtype="string"),
                                   "vlan_id": pd.Series(dtype="Int64")}),
-                    num_rows="dynamic", use_container_width=True, key=key("vlan_rows"),
+                    num_rows="dynamic", width="stretch", key=key("vlan_rows"),
                     column_config={
                         "name": st.column_config.TextColumn("Network name", required=True),
                         "gw_ip_address": st.column_config.TextColumn("Gateway IPv4", help="e.g. 10.20.9.1/24; blank = Layer-2 style, no SVI IP"),
@@ -297,7 +310,7 @@ if p.is_vxlan:
             nets_df = st.data_editor(
                 pd.DataFrame({"name": pd.Series(dtype="string"), "gw_ip_address": pd.Series(dtype="string"),
                               "vlan_id": pd.Series(dtype="Int64")}),
-                num_rows="dynamic", use_container_width=True, key=key("tenant_nets"),
+                num_rows="dynamic", width="stretch", key=key("tenant_nets"),
                 column_config={
                     "name": st.column_config.TextColumn("Network name", required=True),
                     "gw_ip_address": st.column_config.TextColumn("Gateway IPv4", help="e.g. 10.20.1.1/24"),
@@ -508,6 +521,30 @@ if pv:
                    if pt.state != "unused" and (sw.name, pt.number, pt.state, tuple(pt.details)) not in before_ports}
         st.markdown("**Port map after this change**")
         show_port_map(q, sorted({sw for sw, _ in touched}, key=[s.name for s in q.switches].index), touched)
+    st.markdown("**nac-validate**")
+    if not is_macos():
+        st.caption("nac-validate runs in previews on macOS only"
+                   + (" (Windows: skipped)." if is_windows() else " (skipped on this system).")
+                   + " Run it from Review & export after applying.")
+    else:
+        if "validation" not in pv:  # once per preview, not on every rerun
+            with st.spinner("Running nac-validate on the result…"):
+                pv["validation"] = preview_validation(q)
+                if pv["validation"] and not pv["validation"].ok:
+                    pv["validation_before"] = preview_validation(p)
+        res = pv["validation"]
+        if res is None:
+            st.warning("Couldn't run nac-validate here; check Validation settings on Review & export.", icon="⚠️")
+        elif res.ok:
+            ran = f" and {len(res.rules)} Cisco rule set(s)" if res.rules else ""
+            st.success(f"nac-validate passes after this change ({res.schema} schema{ran}).", icon="✅")
+        else:
+            before = pv.get("validation_before")
+            already = before is not None and not before.ok
+            st.error("nac-validate reports problems after this change"
+                     + (" (it already did before it, see Review & export)" if already else "") + ":", icon="⛔")
+            if res.output:
+                st.code(res.output, language="text")
     st.markdown("**YAML changes**")
     ydiffs = [d for d in project_diffs(p, q) if d.status != "unchanged"]
     if not ydiffs:
@@ -517,10 +554,10 @@ if pv:
         with st.expander(f"`{d.name}`: {badge} (+{d.added} −{d.removed})", expanded=len(ydiffs) <= 2):
             st.code(d.diff, language="diff")
     c1, c2, _ = st.columns([1, 1, 3])
-    if c1.button("Apply", type="primary", disabled=pv["base"] != fingerprint(p), use_container_width=True):
+    if c1.button("Apply", type="primary", disabled=pv["base"] != fingerprint(p), width="stretch"):
         del st.session_state["task_preview"]
         set_project(q, pv["label"])
         st.rerun()
-    if c2.button("Discard", use_container_width=True):
+    if c2.button("Discard", width="stretch"):
         del st.session_state["task_preview"]
         st.rerun()

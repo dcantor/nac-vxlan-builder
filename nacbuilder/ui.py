@@ -15,6 +15,7 @@ import streamlit as st
 from .checks import Issue, check_project
 from .history import EMPTY, History, UndoStack
 from .models import Project
+from .store import Store, new_id
 from .tabular import TEMPLATES, build_rows, clean, fmt_errors, import_csv, records, template_csv  # noqa: F401 (re-exported)
 
 
@@ -24,9 +25,27 @@ TABLE_HELP = (
 
 
 def project() -> Project:
+    """The open fabric. A new browser session opens the most recently changed saved fabric."""
     if "project" not in st.session_state:
-        st.session_state.project = Project()
+        from .workspace import fabrics
+
+        p = Project()
+        try:
+            recent = fabrics()
+            if recent:
+                p = Store().load(recent[0].id)
+                st.session_state.fabric_id = recent[0].id
+        except (OSError, ValueError):
+            pass  # a broken store shouldn't stop the app; start empty
+        st.session_state.project = p
     return st.session_state.project
+
+
+def current_id() -> str:
+    """The open fabric's ID in the fabric store (a new one until it's first saved)."""
+    if not st.session_state.get("fabric_id"):
+        st.session_state.fabric_id = new_id()
+    return st.session_state.fabric_id
 
 
 def undo_stack() -> UndoStack:
@@ -38,18 +57,37 @@ def undo_stack() -> UndoStack:
 LOCKED = "Locked by the design standard (Design standards page)."
 
 
-def set_project(p: Project, flash: str | None = None, record: bool = True) -> None:
-    """Replace the project. Unless record=False (undo/redo), the change is snapshotted to history."""
-    if record and p != st.session_state.get("project"):
+def set_project(p: Project, flash: str | None = None, record: bool = True, new_fabric: bool = False,
+                persist: bool = True) -> None:
+    """Replace the open fabric and save it to the fabric store.
+
+    record=False skips the History snapshot (undo/redo, switching). new_fabric=True starts a new
+    fabric (new ID) instead of overwriting the open one: loading an example, a project file, an
+    import, a clone or the demo. persist=False doesn't save it (it was just loaded from the store).
+    """
+    if new_fabric:
+        st.session_state.fabric_id = new_id()
+        for k in ("undo", "task_preview", "pp_selected"):
+            st.session_state.pop(k, None)
+    fid = current_id()
+    if record and (new_fabric or p != st.session_state.get("project")):
         stack, hist = undo_stack(), History()
         try:
             if not stack.entries:  # first change this session: remember where we started
-                start = st.session_state.get("project") or Project()
-                stack.push(EMPTY if start == Project() else str(hist.record(start, "Session start").path), "Session start")
+                start = Project() if new_fabric else (st.session_state.get("project") or Project())
+                stack.push(EMPTY if start == Project() else str(hist.record(start, "Session start", fid).path),
+                           "Session start")
             label = flash or "Change"
-            stack.push(str(hist.record(p, label).path), label)
+            stack.push(str(hist.record(p, label, fid).path), label)
         except OSError as e:  # history is a convenience; never block a save on it
             st.session_state.history_error = str(e)
+    if persist:
+        store = Store()
+        if p != Project() or store.exists(fid):  # don't save a blank fabric nobody touched
+            try:
+                store.save(fid, p)
+            except OSError as e:
+                st.session_state.store_error = str(e)
     st.session_state.project = p
     st.session_state.editor_ver = st.session_state.get("editor_ver", 0) + 1
     if flash:
@@ -132,22 +170,16 @@ def section_issues(section: str) -> None:
         (st.error if i.level == "error" else st.warning)(i.message, icon="⛔" if i.level == "error" else "⚠️")
 
 
-def switch_fabric(name: str) -> None:
-    """Open another fabric's latest saved state (saving the open one first)."""
-    from . import workspace
-
-    cur = project()
-    if name == cur.fabric.name:
+def switch_fabric(fid: str) -> None:
+    """Open another saved fabric (the open one is already saved: every change is)."""
+    if fid == st.session_state.get("fabric_id"):
         return
-    workspace.save_current(cur)
-    target = workspace.latest(name)
-    if target is None:
-        raise ValueError(f"no saved state for {name}")
-    st.session_state.pop("undo", None)  # undo/redo is per fabric
-    st.session_state.pop("task_preview", None)
-    st.session_state.pop("pp_selected", None)
-    set_project(target, record=False)
-    st.session_state.flash = f"Switched to {name}"
+    target = Store().load(fid)
+    for k in ("undo", "task_preview", "pp_selected"):  # undo/redo and previews are per fabric
+        st.session_state.pop(k, None)
+    st.session_state.fabric_id = fid
+    set_project(target, record=False, persist=False)
+    st.session_state.flash = f"Switched to {target.fabric.name}"
 
 
 def header(p: Project) -> None:
@@ -176,17 +208,19 @@ def header(p: Project) -> None:
         c1.markdown(f":material/edit_note: Editing fabric **`{p.fabric.name}`**{demo}  \n"
                     f":small[{std.get(p.standard).label} · {counts} · {'⛔' if errs else '✅'} {errs} errors]  \n"
                     f":small[{nac_version_text()}]")
-        entries = {e.name: e for e in workspace.fabrics()}
-        names = [p.fabric.name, *[n for n in entries if n != p.fabric.name]]
+        fabric_list = workspace.fabrics()
+        by_id = {r.id: r for r in fabric_list}
+        cur = current_id()
+        ids = [cur, *[r.id for r in fabric_list if r.id != cur]]
 
-        def label(n):
-            if n == p.fabric.name:
-                return f"{n} (open)"
-            return workspace.describe(entries[n])
+        def label(fid):
+            if fid == cur:
+                return f"{p.fabric.name} (open)"
+            return workspace.describe(by_id[fid], fabric_list)
 
         def on_pick():
             pick = st.session_state.get(widget_key)
-            if pick and pick != p.fabric.name:
+            if pick and pick != cur:
                 try:
                     switch_fabric(pick)
                 except (ValueError, OSError) as e:
@@ -194,10 +228,10 @@ def header(p: Project) -> None:
 
         with c3:
             theme_toggle(dark, page_paths())
-        widget_key = key(f"fabric_switch_{p.fabric.name}")
-        c2.selectbox("Switch fabric", names, index=0, format_func=label, key=widget_key, on_change=on_pick,
-                     label_visibility="collapsed", disabled=len(names) < 2,
-                     help="Fabrics you've worked on (from History). Switching saves the open fabric first.")
+        widget_key = key(f"fabric_switch_{cur}")
+        c2.selectbox("Switch fabric", ids, index=0, format_func=label, key=widget_key, on_change=on_pick,
+                     label_visibility="collapsed", disabled=len(ids) < 2,
+                     help="Your saved fabrics, most recently changed first. Every change is saved as you go.")
 
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -229,12 +263,10 @@ def theme_toggle(dark: bool, paths: list[str]) -> None:
     """
     import json
 
-    import streamlit.components.v1 as components
-
     target = "Light" if dark else "Dark"
     icon = "☀️" if dark else "🌙"
     fg, bg, border = ("#fafafa", "#262730", "#4b4d57") if dark else ("#31333f", "#ffffff", "#d5d8de")
-    components.html(f"""
+    st.iframe(f"""
 <style>
   html, body {{ margin: 0; background: transparent; }}
   button {{ width: 38px; height: 38px; border-radius: 8px; border: 1px solid {border}; background: {bg};
@@ -260,7 +292,7 @@ def theme_toggle(dark: bool, paths: list[str]) -> None:
     }}
   }});
 </script>
-""", height=40)
+""", height=40, width=44)
 
 
 def page_paths() -> list[str]:

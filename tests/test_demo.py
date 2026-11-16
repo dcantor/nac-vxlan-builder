@@ -10,6 +10,7 @@ from nacbuilder.demo import DEMO_NAME, build_demo, delete_demo, demo_export_dir,
 from nacbuilder.generate import apply_write, render_all
 from nacbuilder.history import History
 from nacbuilder.portmap import DISABLED, switch_ports
+from nacbuilder.store import Store
 from nacbuilder.validate import nac_validate
 from tests.test_fabric_features import full_fabric
 
@@ -48,15 +49,21 @@ def test_load_export_delete_restores_previous_fabric():
     before = full_fabric()
     at = page(before)
     assert not at.exception
-    assert any("replaces the open fabric `dc1`" in i.value for i in at.info)
+    assert any("`dc1` stays in your fabric list" in i.value for i in at.info)
+    before_id = at.session_state["fabric_id"] = "dc1fabric001"
+    Store().save(before_id, before)
     at.button(key="demo_load").click().run()
-    assert is_demo(at.session_state["project"]) and at.session_state["pre_demo"] == before
+    assert is_demo(at.session_state["project"]) and at.session_state["pre_demo"] == before_id
+    assert at.session_state["fabric_id"] != before_id  # the demo is its own fabric
+    assert Store().load(before_id) == before
     next(b for b in at.button if b.label == f"Write to export/{DEMO_NAME}/").click().run()
     assert sorted(x.name for x in demo_export_dir().iterdir()) == sorted(render_all(at.session_state["project"]))
     assert at.get("download_button")  # zip download offered
     at.button(key="demo_delete").click().run()
     assert not at.exception
     assert at.session_state["project"] == before and "pre_demo" not in at.session_state
+    assert at.session_state["fabric_id"] == before_id
+    assert [r.name for r in Store().list()] == ["dc1"]  # the demo fabric is gone from the store
     assert not demo_export_dir().exists()
     assert at.session_state["flash"].startswith("Deleted the demo (export/demo-dc1/")
 

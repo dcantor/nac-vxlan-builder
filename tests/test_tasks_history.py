@@ -143,7 +143,8 @@ def test_app_undo_redo_and_history_files(tmp_path, monkeypatch):
     assert undo_btn.disabled
     next(b for b in at.sidebar.button if b.label == "Load example").click().run()
     assert len(at.session_state["project"].switches) == 14
-    assert [s.label for s in History(tmp_path / "h").list("dc1")] == ["Loaded the example fabric"]
+    fid = at.session_state["fabric_id"]  # History is kept per fabric ID
+    assert [s.label for s in History(tmp_path / "h").list(fid)] == ["Loaded the example fabric"]
     next(b for b in at.sidebar.button if b.label == "Undo").click().run()
     assert at.session_state["project"] == Project()
     next(b for b in at.sidebar.button if b.label == "Redo").click().run()
